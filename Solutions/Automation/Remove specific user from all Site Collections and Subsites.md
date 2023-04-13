@@ -1,4 +1,4 @@
-#Automation #OneDrive #SharePointOnline #PnP #PowerShell 
+#Automation #OneDrive #SharePointOnline #PnP #PowerShell #SiteCollection #Subsite 
 <br>
 
 ## SharePoint Online Management Shell
