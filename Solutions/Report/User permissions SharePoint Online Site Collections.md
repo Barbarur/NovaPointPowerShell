@@ -1,4 +1,4 @@
-#Report #AzureAD #CSV #Permissions #PnP #PowerShell #SharePointOnline 
+#Report #SharePointOnline #AzureAD #CSV #Permissions #PnP #PowerShell 
 
 <br>
 
