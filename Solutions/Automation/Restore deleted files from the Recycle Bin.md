@@ -7,8 +7,8 @@
 # PARAMETERS TO BE CHANGED TO MATCH CURRENT CASE
 ################################################################
 $SiteURL = "https://<DOMAIN>-admin.sharepoint.com"
-$StartDate = "2022-01-31 12:00:00 AM"
-$EndDate = "2022-03-1 12:00:00 AM"
+$StartDate = "2022-01-31 12:00:00 AM" # Time should be in UTC
+$EndDate = "2022-03-1 12:00:00 AM" # Time should be in UTC
 $DeletedBy = "<USER@EMAIL.COM>"
 
 
@@ -89,6 +89,8 @@ While($null -ne $DeletedItems) {
         Add-ScriptLog -Color yellow -Msg "Batch $($BatchCounter) - $($PercentComplete)% Completed - Restoting $($Item.ItemType) '$($Item.Title)' at '$($Item.DirName)'"
         $ItemCounter++
                 
+        Add-ScriptLog -Color Magenta -Msg $Item.DeletedDate
+
         Try {
             #Restore-PnpRecycleBinItem -Identity $Item -Force -ErrorAction Stop
             Add-ReportRecord -Item $Item -Action "Restored"
@@ -97,7 +99,7 @@ While($null -ne $DeletedItems) {
         Catch {
             If ($_.Exception.Message -like "*with this name*already exists*") {
                 Add-ReportRecord -Item $Item -Action "Error" -Remarks "A file with this name already exists on the same location"
-                Add-ScriptLog -Color Magenta -Msg "$($Item.ItemType): '$($Item.Title)' already exists in target location. Deleting $($Item.ItemType) from recycle bin"
+                Add-ScriptLog -Color Magenta -Msg "$($Item.ItemType): '$($Item.Title)' already exists in target location. Ignoring the file"
             }
             Else {
                 Add-ReportRecord -Item $Item -Action "Error" -Remarks $_.Exception.Message
@@ -107,7 +109,6 @@ While($null -ne $DeletedItems) {
         }
     }
     
-    Add-ScriptLog -Color Red -Msg "Error list includes $($ErrorItems.count) items"
     $BatchCounter++
     $DeletedItems = Get-DeletedItems -Batch $BatchCounter
 }
@@ -117,5 +118,4 @@ if($collSiteCollections.Count -ne 0) {
     Add-ScriptLog -Color Cyan -Msg "$($PercentComplete)% Completed - Finished running script"
 }
 Add-ScriptLog -Color Cyan -Msg "Report generated at at $($ReportOutput)"
-
 ```
