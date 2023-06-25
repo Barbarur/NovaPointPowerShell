@@ -10,7 +10,7 @@
 #################################################################
 $SiteURL= "https://<DOMAIN>.sharepoint.com/sites/<SITENAME>"
 $LibraryName = "<LIBRARYNAME>"
-
+$RelativePath = "*/MainFolder>/<SubFolder1>/<SubFolder2>/*" # Keep the * ad the beginning and the end
 
 
 #################################################################
@@ -78,7 +78,7 @@ try {
     Connect-PnPOnline -Url $SiteURL -Interactive -ErrorAction Stop
     Add-ScriptLog -Color Cyan -Msg "Connected to Site"
 
-    $collItems = Get-PnPListItem -List $LibraryName -PageSize 3000
+    $collItems = Get-PnPListItem -List $LibraryName -PageSize 3000 | Where-Object { $_["FileRef"] -like $RelativePath }
     Add-ScriptLog -Color Cyan -Msg "Collected all Items"
     Add-ScriptLog -Color Cyan -Msg "Items Total: $($collItems.Count)"
 }
@@ -123,8 +123,6 @@ Add-ScriptLog -Color Cyan -Msg "Report generated at at $($ReportOutput)"
 # DEFINE PARAMETERS FOR THE CASE
 #################################################################
 $SiteURL= "https://<DOMAIN>.sharepoint.com/sites/<SITENAME>"
-$SiteURL= "https://m365x88421522.sharepoint.com/sites/12345678"
-
 
 
 #################################################################
