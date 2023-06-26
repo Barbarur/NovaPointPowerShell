@@ -1,4 +1,4 @@
-#Report #SharePointOnline #OneDrive #PowerShell #PnP #DocumentLibrary #ItemList #SharedLink 
+#Report #SharePointOnline #OneDrive #PowerShell #PnP #DocumentLibrary #ItemList #SharedLink #RoleAssigments 
 
 <br>
 
