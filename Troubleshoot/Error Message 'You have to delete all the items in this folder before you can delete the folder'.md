@@ -106,7 +106,7 @@ First check if you have the Check Out enabled by navigating to the affected Docu
 
 ### Root cause #2 . Solution #1
 
-Check In all the files inside the folder you want to delete. [Visit this article for more information about how to do it](https://novacato.com/how-to-bulk-check-in-all-the-files-in-a-specific-location-using-powershell/).
+Check In all the files inside the folder you want to delete. [Visit this article for more information about how to do it](obsidian://open?vault=NovaPointPowerShell&file=Solutions%2FAutomation%2FCheck-In%20all%20files%20in%20a%20specific%20location).
 
 <br>
 

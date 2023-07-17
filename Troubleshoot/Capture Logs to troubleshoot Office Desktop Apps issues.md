@@ -38,8 +38,8 @@ Open the affected file and reproduce the issue.
 1.  Go to Fiddler > _File_ > _Save_ > _All sessions_.
 2.  Go to Process Monitor > _File_ > _Save_. Select _Events displayed using current filter_ and choose the Path and click OK. Zip the files and name it ‘_ProcessMonitorLogs_DATE_‘.
 3.  Go to the pop-up window, opened with the Command Promt command before, and save the generated logs. Zip them and name it ‘_DumpLogs_DATE_“.
-4.  Navigate to _C:\Users\USERNAME\AppData\Local\Temp,_ you would see the files named ‘_MachineName-Date-time.log’_. Collect those files and Zip them and name it ‘ClientLogsv1_DATE‘.
-5.  Navigate to _C:\Users\USERNAME\AppData\_Local\_Temp\Diagnostics,_ you would see a folder for each different application, Zip the folder of the application you have used during the test and name it ‘ClientLogsv2_DATE‘.
+4.  Navigate to _C:\\Users\\USERNAME\\AppData\\Local\\Temp,_ you would see the files named ‘_MachineName-Date-time.log’_. Collect those files and Zip them and name it ‘ClientLogsv1_DATE‘.
+5.  Navigate to _C:\\Users\\USERNAME\\AppData\\_Loca\l\_Temp\\Diagnostics,_ you would see a folder for each different application, Zip the folder of the application you have used during the test and name it ‘ClientLogsv2_DATE‘.
 6.  Open PowerShell and run the below command to stop collecting logs:
 ```powershell
 reg delete HKCU\Software\Microsoft\Office\16.0\Common\Logging /v MsoEtwTracingEnabled
