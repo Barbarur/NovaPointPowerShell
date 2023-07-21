@@ -4,17 +4,17 @@
 
 ## Create CSV file with folder structure
 
-| Country | BU | Department
-| :--- | :--- | :---
-| UK | BU#1 | Finance
-| Australia | BU#2 | Legal
-| New Zealand | BU#3 | Procurement
-| Canada | BU#4 | Logistics
-| India | BU#5 | Operation
-| | BU#6 | Sales
-| | BU#7 | HR
-| | BU#8
-| | BU#9
+| Country | BU | Department |
+| :--- | :--- | :--- |
+| UK | BU#1 | Finance |
+| Australia | BU#2 | Legal |
+| New Zealand | BU#3 | Procurement |
+| Canada | BU#4 | Logistics |
+| India | BU#5 | Operation |
+| | BU#6 | Sales |
+| | BU#7 | HR |
+| | BU#8 |
+| | BU#9 |
 
 <br>
 
