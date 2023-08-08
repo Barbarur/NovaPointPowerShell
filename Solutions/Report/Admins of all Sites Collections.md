@@ -309,103 +309,178 @@ Else{
 ## Using SharePoint Online Management Shell: Get All Admins using
 
 ```powershell
-#Define Parameters
-$AdminSiteURL= "https://DOMAIN-admin.sharepoint.com"
-$ReportOutput = "C:\Temp\SitesOwnersReport.csv"
+#################################################################
+# DEFINE PARAMETERS FOR THE CASE
+#################################################################
+$AdminSiteURL= "https://<Domain>-admin.sharepoint.com"
 
-#Get Credentials
-$Cred = Get-Credential
 
-#Connect to SharePoint Online Admin Center
-Connect-SPOService -Url $AdminSiteURL –Credential $Cred
-Connect-AzureAD –Credential $Cred
 
-#Get owners of each Site
-$Global:Results = @()
-$ItemCounter = 0 
+#################################################################
+# REPORT AND LOGS FUNCTIONS
+#################################################################
 
-#Function to add Owners to the Report
-Function Add-Report($OwnerType, $OwnerName, $OwnerEmail){
-    $Global:Results += New-Object PSObject -Property ([ordered]@{
-        SiteName               = $Site.Title
-        SiteURL                = $Site.Url
-        OwnerType              = $OwnerType
-        OwnerQty               = $OwnerQty
-        OwnerName              = $OwnerName
-        OwnerEmail             = $OwnerEmail
-        StorageTotalGB         = ('{0:N2}' -f ($Site.StorageQuota/1024))
-        StorageUsedGB          = ('{0:N2}' -f ([math]::Round($Site.StorageUsageCurrent/1024,2)))
-        StorageFreeGB          = ('{0:N2}' -f (($Site.StorageQuota-$Site.StorageUsageCurrent)/1024))
+Function Add-ReportRecord {
+    param (
+        $Site,
+        $OwnerQty = "",
+        $AccountType = "",
+        $UserPrincipalName = "",
+        $Remarks = ""
+    )
+
+    $Record = New-Object PSObject -Property ([ordered]@{
+        SiteName = $Site.Title
+        SiteURL = $Site.Url
+        OwnerQty = $OwnerQty
+        AccountType = $AccountType
+        UserPrincipalName = $UserPrincipalName
+        Remarks = $Remarks
         })
+    
+    $Record | Export-Csv -Path $ReportOutput -NoTypeInformation -Append
+}
+
+Function Add-ScriptLog($Color, $Msg) {
+    Write-host -f $Color $Msg
+    $Date = Get-Date -Format "yyyy/MM/dd HH:mm"
+    $Msg = $Date + " - " + $Msg
+    Add-Content -Path $LogsOutput -Value $Msg
+}
+
+# Create Report location
+$FolderPath = "$Env:USERPROFILE\Documents\SPOSolutions\"
+$Date = Get-Date -Format "yyyyMMddHHmmss"
+$ReportName = "SiteCollectionAdmins"
+$FolderName = $Date + "_" + $ReportName
+New-Item -Path $FolderPath -Name $FolderName -ItemType "directory"
+
+# Files
+$ReportOutput = $FolderPath + $FolderName + "\" + $FolderName + "_report.csv"
+$LogsOutput = $FolderPath + $FolderName + "\" + $FolderName + "_Logs.txt"
+
+Add-ScriptLog -Color Cyan -Msg "Report will be generated at $($ReportOutput)"
+
+
+
+#################################################################
+# SCRIPT LOGIC
+#################################################################
+
+Function Get-ObjectID {
+    param (
+        $LoginName
+    )
+
+    $GroupID = $LoginName
+    $GroupID = $GroupID -replace ('_o', '')
+    $GroupID = $GroupID -replace ('c:0o.c|federateddirectoryclaimprovider|', '')
+    $GroupID = $GroupID -replace ('c:0t.c|tenant|', '')
+    $GroupID = $GroupID.Trim('|')
+
+    Return $GroupID
+}
+
+Function Get-GroupUsers {
+    param (
+        $LoginName
+    )
+
+    If($LoginName -clike '*_o'){
+        $GroupID = Get-ObjectID -LoginName $LoginName
+        $GroupUsers = Get-AzureADGroupOwner -ObjectId $GroupID
+    }
+    Else{
+        $GroupID = Get-ObjectID -LoginName $LoginName
+        $GroupUsers = Get-AzureADGroupMember  -ObjectId $GroupID
     }
 
-#Get all Site colections
-$Sites = Get-SPOSite -Limit ALL -IncludePersonalSite $False  | Where{ ($_.Title -notlike "") }
-Write-Host -f Yellow "Total Number of Sites Found: "$Sites.count
+    Return $GroupUsers 
+}
 
-Foreach ($Site in $Sites) {
-    #Status notification
-    $ItemCounter++
-    $ItemProcess = [math]::Round($ItemCounter/$Sites.Count*100,1)
-    Write-Progress -PercentComplete $ItemProcess -Activity "Processing $($ItemProcess)%" -Status "Site '$($Site.URL)"
-    $Msg = "Collecting Owners for Site '{0}'... " -f $Site.Title
-    Write-Host -f Yellow $Msg -NoNewline
-    
+Function Get-Admins {
+    param (
+        $Site
+    )
+
     $OwnerQty = "Single Owner"
 
-    Try {
-        #Get all Site Collection Administrators
-        $SiteAdmins = Get-SPOUser -Site $Site.Url -Limit ALL | Where { $_.IsSiteAdmin -eq $True}
+    $SiteAdmins = Get-SPOUser -Site $Site.Url -Limit ALL | Where-Object { $_.IsSiteAdmin -eq $True -and $_.DisplayName -notlike "Global Administrator" -and $_.DisplayName -notlike "SharePoint Administrator" }
 
-        If ($SiteAdmins.Length -eq 0) {
-            $OwnerQty = "NO OWNER"
-            Add-Report -OwnerType "User" -OwnerName "NO OWNER" -OwnerEmail ""
-            Continue
-            }
-
-        If ($SiteAdmins.Length -ne 1) {$OwnerQty = $OwnerQty = "Multiple Owners"}
-
-        ForEach($Admin in $SiteAdmins) {
-            If ($Admin.LoginName -clike "*@*") {
-                Try {
-                    $User = Get-AzureADUser -ObjectId $Admin.LoginName
-                    Add-Report -OwnerType "User" -OwnerName $User.DisplayName -OwnerEmail $User.Mail
-                    }
-                Catch {
-                    Add-Report -OwnerType "User" -OwnerName "DELETED USER" -OwnerEmail ""
-                    }
-                }
-            Else {
-                $ObjectId = $Admin.LoginName -replace ('_o','')
-                Try{
-                    $Owners= Get-AzureADGroupOwner -ObjectId $ObjectId
-                    If($Owners.Count -ne 1) {$OwnerQty = "Multiple Owners"}
-
-                    ForEach ($Owner in $Owners.UserPrincipalName) {
-                        $User = Get-AzureADUser -ObjectId $Owner
-                        Add-Report -OwnerType "MS365 Group" -OwnerName $User.DisplayName -OwnerEmail $User.Mail 
-                        }
-                    }
-                Catch {
-                    Add-Report -OwnerType "MS365 Group" -OwnerName "DELETED GROUP" -OwnerEmail ""
-                    }
-                }
-            }
-        }
-    Catch {
-        $OwnerQty = "NO OWNER"
-        Add-Report -OwnerType "User" -OwnerName "NO OWNER" -OwnerEmail ""
-        }
-    #Status notification
-    Write-Host -f Green "COMPLETED!"
+    If ($SiteAdmins.Length -eq 0) {
+        Add-ReportRecord -Site $Site -Remarks "NO ADMIN"
+        return
     }
 
-#Close status notification
-Write-Progress -Activity "Processing $($ItemProcess)%" -Status "Site '$($Site.URL)"
+    If ($SiteAdmins.Length -ne 1) {$OwnerQty = "Multiple Owners"}
 
-#Export the results to CSV
-If (Test-Path $ReportOutput) { Remove-Item $ReportOutput }
-$Global:Results | Export-Csv -Path $ReportOutput -NoTypeInformation
-Write-host -b Green "Report Generated Successfully!"
-Write-host -f Green $ReportOutput
+    ForEach($Admin in $SiteAdmins) {
+
+        If ($Admin.LoginName -clike "*@*") {
+
+            Add-ReportRecord -Site $Site -OwnerQty $OwnerQty -AccountType "User" -UserPrincipalName $Admin.LoginName
+        }
+        Else {
+
+            Try{
+                $collGroupUsers = Get-GroupUsers -LoginName $Admin.LoginName
+
+                If($collGroupUsers.Count -ne 1) {$OwnerQty = "Multiple Owners"}
+
+                ForEach ($oUser in $collGroupUsers) {
+                    Add-ReportRecord -Site $Site -OwnerQty $OwnerQty -AccountType "Security Group '$($Admin.DisplayName)'" -UserPrincipalName $oUser.UserPrincipalName
+                }
+            }
+            Catch {
+
+                Add-ReportRecord -Site $Site -AccountType "Security Group '$($Admin.DisplayName)'" -Remarks "DELETED GROUP"
+            }
+        }
+    }
+}
+
+
+try {
+
+    Connect-SPOService -Url $AdminSiteURL -ErrorAction Stop
+    Add-ScriptLog -Color Cyan -Msg "Connected to SharePoint Online"
+
+    Connect-AzureAD
+    Add-ScriptLog -Color Cyan -Msg "Connected to Azure AD"
+
+    $collSiteCollections = Get-SPOSite -Limit ALL -IncludePersonalSite $False | Where-Object{ ($_.Title -notlike "" -and $_.Template -notlike "*Redirect*" -and $_.Url -notlike "*my.sharepoint.com*") }
+    Add-ScriptLog -Color Cyan -Msg "Site Collections: $($collSiteCollections.Count)"
+}
+catch {
+
+    Add-ScriptLog -Color Red -Msg "Error message: '$($_.Exception.Message)'"
+    Add-ScriptLog -Color Red -Msg "Error trace: '$($_.Exception.ScriptStackTrace)'"
+    break
+}
+
+$ItemCounter = 0
+ForEach($oSiteCollection in $collSiteCollections) {
+
+    $PercentComplete = [math]::Round($ItemCounter/$collSiteCollections.Count * 100, 2)
+    Add-ScriptLog -Color Yellow -Msg "$($PercentComplete)% Completed - Processing Site Collection: $($oSiteCollection.URL)"
+    $ItemCounter++
+
+    Try {
+
+        Get-Admins -Site $oSiteCollection
+    }
+    Catch {
+
+        Add-ScriptLog -Color Red -Msg "Error while processing Site Collection '$($oSiteCollection.Url)'"
+        Add-ScriptLog -Color Red -Msg "Error message: '$($_.Exception.Message)'"
+        Add-ScriptLog -Color Red -Msg "Error trace: '$($_.Exception.ScriptStackTrace)'"
+    }
+}
+
+if($collSiteCollections.Count -ne 0) { 
+
+    $PercentComplete = [math]::Round($ItemCounter/$collSiteCollections.Count * 100, 1) 
+    Add-ScriptLog -Color Cyan -Msg "$($PercentComplete)% Completed - Finished running script"
+}
+Add-ScriptLog -Color Cyan -Msg "Report generated at at $($ReportOutput)"
 ```

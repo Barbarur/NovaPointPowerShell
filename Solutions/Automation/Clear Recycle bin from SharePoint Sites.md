@@ -142,25 +142,37 @@ $DeletedBy = "USER@EMAIL.com"
 #################################################################
 # REPORT AND LOGS FUNCTIONS
 #################################################################
-# Add Log of the Script
-Function Add-ScriptLog($Color, $Msg)
-{
-    $Date = Get-Date -Format "yyyy/MM/dd HH:mm K"
-    $Msg = $Date + " - " + $Msg
-    Add-Content -Path $LogsOutput -Value $Msg
-    Write-host -f $Color $Msg
+
+Function Add-ReportRecord {
+    param (
+        $Group
+    )
+
+    $Record = New-Object PSObject -Property ([ordered]@{
+        Case = $Group.Name
+        HoldPolicy = $Group.SharePointSiteUrl
+        })
+    
+    $Record | Export-Csv -Path $ReportOutput -NoTypeInformation -Append
 }
 
-# Create logs location
-$ReportName = "ClearSiteRecycleBin"
-$Date = Get-Date -Format FileDateTime
+Function Add-ScriptLog($Color, $Msg) {
+    Write-host -f $Color $Msg
+    $Date = Get-Date -Format "yyyy/MM/dd HH:mm"
+    $Msg = $Date + " - " + $Msg
+    Add-Content -Path $LogsOutput -Value $Msg
+}
+
+# Create Report location
+$FolderPath = "$Env:USERPROFILE\Documents\SPOSolutions\"
+$Date = Get-Date -Format "yyyyMMddHHmmss"
+$ReportName = "PublicGroups"
 $FolderName = $Date + "_" + $ReportName
-$FolderPath = "$Env:USERPROFILE\Documents\"
 New-Item -Path $FolderPath -Name $FolderName -ItemType "directory"
 
-# Create logs file
-$LogsName = $ReportName + "_Logs.txt"
-$LogsOutput = $FolderPath + $FolderName + "\" + $LogsName
+# Files
+$ReportOutput = $FolderPath + $FolderName + "\" + $FolderName + "_report.csv"
+$LogsOutput = $FolderPath + $FolderName + "\" + $FolderName + "_Logs.txt"
 
 Add-ScriptLog -Color Cyan -Msg "Logs will be generated at $($LogsOutput)"
 
@@ -169,6 +181,7 @@ Add-ScriptLog -Color Cyan -Msg "Logs will be generated at $($LogsOutput)"
 #################################################################
 # SCRIPT LOGIC
 #################################################################
+
 Function Get-DeletedItems ($ErrorItems){
     return Get-PnPRecycleBinItem -RowLimit 3000 | Where-Object { $_.DeletedDate -gt $StartDate -and $_.DeletedDate -lt $EndDate -and $_.DeletedByEmail -eq $DeletedBy -and $_.id -notin $ErrorItems}
 }
@@ -179,10 +192,14 @@ function Clear-RecycleBin {
     $ErrorItems = @()
     $DeletedItems = Get-DeletedItems -ErrorItems $ErrorItems
     while ($DeletedItems.count -ne 0) {
-        Add-ScriptLog -Color Yellow -Msg "$($PercentComplete)% Completed - Clearing Recycle bin of site '$($Site.URL)' - Batch $($DeletedBatch)"
+        
+        $ItemCounter = 0
         ForEach ($Item in $DeletedItems) {
+            $PercentComplete = [math]::Round($ItemCounter/$DeletedItems.Count * 100, 2)
+            Add-ScriptLog -Color Yellow -Msg "$($PercentComplete)% Completed for batch: $($DeletedBatch)"
+            $ItemCounter++
             try {
-                Clear-PnPRecycleBinItem -Identity $DeletedItems.ID
+                Clear-PnPRecycleBinItem -Identity $Item -Force
             }
             catch {
                 Add-ScriptLog -Color Red -Msg "Error: $($_.Exception.Message)"
@@ -200,6 +217,7 @@ try {
 }
 catch {
     Add-ScriptLog -Color Red -Msg "Error: $($_.Exception.Message)"
+    break
 }
 
 Clear-RecycleBin

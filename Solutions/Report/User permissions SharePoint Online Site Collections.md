@@ -12,7 +12,7 @@ This script doesn’t actually review the permissions, only if the user is regis
 ################################################################
 $AdminSiteURL = "https://<DOMAIN>-admin.sharepoint.com"
 $SiteCollAdmin = "<USER@EMAIL.com>"
-$CheckUserEmail = "<USER@EMAIL.com>"
+$UserUPN = "<USER@EMAIL.com>"
 
 
 
@@ -22,8 +22,8 @@ $CheckUserEmail = "<USER@EMAIL.com>"
 # Add new record on the report
 Function Add-ReportRecord($SiteURL) {
     $Record = New-Object PSObject -Property ([ordered]@{
-        "Site URL"          = $SiteURL
-        "User Email"        = $CheckUserEmail
+        SiteURL = $SiteURL
+        UserUPN = $UserUPN
         })
     
     $Record | Export-Csv -Path $ReportOutput -NoTypeInformation -Append
@@ -59,20 +59,24 @@ Add-ScriptLog -Color Cyan -Msg "Report will be generated at $($ReportOutput)"
 Function Find-UserAccess($SiteURL) {
     Connect-PnPOnline -Url $SiteURL -Interactive
 
-    $UsersList = Get-PnPUser | Where-Object { $_.Email -eq $CheckUserEmail}
-
-    If ($UsersList.Length -eq 0){continue}
-
-    Add-ScriptLog -Color Cyan -Msg "User found in Site '$($SiteURL)'"
-    Add-ReportRecord -SiteURL $SiteURL
+    $User = Get-PnPUser -Identity $UserLoginName
+    
+    if ($null -ne $User) {
+        Add-ScriptLog -Color Cyan -Msg "User found in Site '$($SiteURL)'"
+        Add-ReportRecord -SiteURL $SiteURL
+    }
 }
 
 # Connect to SharePoint Site and collect subsites
 try {
     Connect-PnPOnline -Url $AdminSiteURL -Interactive -ErrorAction Stop
     Add-ScriptLog -Color Cyan -Msg "Connected to SharePoint Admin Center"
+
     $SitesList = Get-PnPTenantSite -ErrorAction Stop | Where-Object{ ($_.Title -notlike "" -and $_.Template -notlike "*Redirect*") }
     Add-ScriptLog -Color Cyan -Msg "Collected Site Collections: $($SitesList.count)"
+
+    $UserLoginName = "i:0#.f|membership|$($UserUPN)"
+    Add-ScriptLog -Color Cyan -Msg "User LoginName: $($UserLoginName)"
 }
 catch {
     Add-ScriptLog -Color Red -Msg "Error: $($_.Exception.Message)"
