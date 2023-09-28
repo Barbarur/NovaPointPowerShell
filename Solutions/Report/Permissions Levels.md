@@ -2,6 +2,344 @@
 
 <br>
 
+## Permission for a specific User and Security Group
+
+```powershell
+################################################################
+# PARAMETERS TO BE CHANGED TO MATCH CURRENT CASE
+################################################################
+$AdminSiteURL = "https://<Domain>-admin.sharepoint.com" # SharePoint Admin Center URL
+$SiteCollAdmin = "<admin@email.com>" # SharePoint Admin Account
+$TargetUserUPN = "<user@email.com>" # UPN of the user
+$TargetGroupID = "<object-id>" # Object ID of the Security Group
+$TargetSiteCollectionURL = "" # Leave it empty to go through all Site Collections, this will make the script to run long time and high provability tp crash
+
+
+
+################################################################
+# REPORT AND LOGS FUNCTIONS
+################################################################
+
+function Add-ReportRecord {
+    param (
+        $Site,
+        $LocationURL,
+        $AccessType,
+        $AccountType,
+        $Users,
+        $PermissionLevels,
+        $Remarks
+    )
+
+    if( [string]::IsNullOrWhiteSpace($Users) ) { return }
+
+    Add-ScriptLog -Color Cyan -Msg "Reviewing Record: SiteUrl '$($Site.Url)', LocationUrl '$($LocationURL)', AccessType '$($AccessType)', AccountType '$($AccountType)', Users '$($Users)', PemissionLevels '$($PermissionLevels)'"
+
+    if ( $AccountType -notlike "*$($TargetGroupName)*" -and $Users -notlike "*$($TargetUserUPN)*") { return }
+
+    $Record = New-Object PSObject -Property ([ordered]@{
+        SiteTitle = $Site.Title
+        SiteURL = $Site.URL
+        LocationURL = $LocationURL
+        AccessType = $AccessType
+        AccountType = $AccountType
+        Users = $Users
+        PermissionLevels = $PermissionLevels
+        Remarks = $Remarks
+        })
+
+    $Record | Export-Csv -Path $ReportOutput -NoTypeInformation -Append
+}
+
+Function Add-ScriptLog($Color, $Msg) {
+    $Date = Get-Date -Format "yyyy/MM/dd HH:mm"
+    $Msg = $Date + " - " + $Msg
+    Add-Content -Path $LogsOutput -Value $Msg
+    Write-host -f $Color $Msg
+}
+
+
+# Create Report location
+$FolderPath = "$Env:USERPROFILE\Documents\SPOSolutions\"
+$Date = Get-Date -Format "yyyyMMddHHmmss"
+$ReportName = "UserAccessReport"
+$FolderName = $Date + "_" + $ReportName
+New-Item -Path $FolderPath -Name $FolderName -ItemType "directory"
+
+# Files
+$ReportOutput = $FolderPath + $FolderName + "\" + $FolderName + "_report.csv"
+$LogsOutput = $FolderPath + $FolderName + "\" + $FolderName + "_Logs.txt"
+
+Add-ScriptLog -Color Cyan -Msg "Report will be generated at $($ReportOutput)"
+
+
+
+#################################################################
+# SCRIPT LOGIC
+#################################################################
+
+function Find-User {
+    param (
+        $Site
+    )
+
+    Add-ScriptLog -Color DarkYellow -Msg "Finding user"
+
+    $User = Get-PnPUser -Identity $TargetUserLoginName
+    $Group = Get-PnPUser -Identity $TargetGroupLoginName
+
+    if ($null -ne $User -or $null -ne $Group) {
+        Add-ScriptLog -Color DarkYellow -Msg "User found"
+         return $true
+    }
+    else {
+        Add-ScriptLog -Color DarkYellow -Msg "User not found"
+        $false
+    }
+}
+
+function Search-SitePermissions {
+    param (
+        $Site
+    )
+
+    Add-ScriptLog -Color White -Msg "Searching permissions for site $($Site.Url)"
+
+    Find-UserPermissions -Site $Site -LocationURL $Site.URL -RoleAssignments $Site.RoleAssignments
+
+    $ExcludedcollLists = @("appdata", "appfiles", "Composed Looks", "Converted Forms", "Form Templates", "List Template Gallery", "Master Page Gallery", "Preservation Hold Library", "Project Policy Item List", "Site Assets", "Site Pages", "Solution Gallery", "Style Library", "TaxonomyHiddenList", "Theme Gallery", "User Information List", "Web Part Gallery")
+    $collLists = Get-PnPList -Includes HasUniqueRoleAssignments, RoleAssignments | Where-Object { $_.Hidden -eq $False -and $_.Title -notin $ExcludedcollLists }
+    ForEach ($oList in $collLists) {
+
+        Add-ScriptLog -Color White -Msg "Checking '$($oList.BaseType)': $($oList.Title)"
+
+        If($oList.HasUniqueRoleAssignments) {
+
+            Add-ScriptLog -Color White -Msg "'$($oList.BaseType)': $($oList.Title) has unique permissions"
+            Find-UserPermissions -Site $Site -LocationURL $oList.DefaultViewUrl -RoleAssignments $oList.RoleAssignments
+        }
+        
+        $collItem = Get-PnPListItem -List $oList -PageSize 3000 -Fields "HasUniqueRoleAssignments", "RoleAssignments"
+        ForEach($oItem in $collItem) {
+            
+            Add-ScriptLog -Color White -Msg "Checking Item'$($oItem.FieldValues["FileRef"])'"
+            
+            If($oItem.HasUniqueRoleAssignments) {
+
+                Add-ScriptLog -Color White -Msg "'$($oItem.FileSystemObjectType)': $($oItem.FieldValues["FileLeafRef"]) has unique permissions"
+
+                Find-UserPermissions -Site $Site -LocationURL $oItem.FieldValues["FileRef"] -RoleAssignments $oItem.RoleAssignments
+            }
+        }
+    }
+}
+
+function Find-UserPermissions {
+    param (
+        $Site,
+        $LocationURL,
+        $RoleAssignments
+    )
+
+    Add-ScriptLog -Color White -Msg "Finding permissions in location $($LocationURL)"
+
+    ForEach ($RoleAssignment in $RoleAssignments) {
+
+        Get-PnPProperty -ClientObject $RoleAssignment -Property RoleDefinitionBindings, Member
+     
+        $RoleDefinitionBindings = ($RoleAssignment.RoleDefinitionBindings | Select-Object -ExpandProperty Name | Where-Object { ($_ -ne "Limited Access") -and ($_ -ne "Web-Only Limited Access")} ) -join ","
+        If($RoleDefinitionBindings.Length -eq 0 -or $SiteRoleAssignment.Member.Title -clike '*Limited Access System Group*') {Continue}
+
+        If($RoleAssignment.Member.PrincipalType -eq "SharePointGroup") {
+         
+            Find-SharePointGroupMembers -SharePointGroupTitle $RoleAssignment.Member.Title -Site $Site -LocationURL $LocationURL -RoleDefinitionBindings $RoleDefinitionBindings
+        }
+        elseif ($RoleAssignment.Member.PrincipalType -eq "SecurityGroup") {
+            
+            Find-SecurityGroupMembers -GroupName $RoleAssignment.Member.Title -GroupID $RoleAssignment.Member.LoginName -Site $Site -LocationURL $LocationURL -AccessType "Direct Permissions" -AccountType "" -RoleDefinitionBindings $RoleDefinitionBindings
+        }
+        else {
+            
+            Add-ReportRecord -Site $Site -LocationURL $LocationURL -AccessType "Direct Permissions" -AccountType "User" -Users $RoleAssignment.Member.LoginName -PermissionLevels $RoleDefinitionBindings
+        }
+    }
+}
+
+function Find-SharePointGroupMembers {
+    param (
+        $SharePointGroupTitle,
+        $Site,
+        $LocationURL,
+        $RoleDefinitionBindings
+    )
+    
+    Add-ScriptLog -Color White -Msg "Finding users in SharePoint group '$($SharePointGroupTitle)'"
+
+    $collGroupMembers = Get-PnPGroupMember -Identity $SharePointGroupTitle
+
+    foreach ($oSharePointGroupMember in $collGroupMembers) {
+
+        Add-ScriptLog -Color White -Msg "Processing member '$($oSharePointGroupMember.Title)'"
+
+        if ($oSharePointGroupMember.PrincipalType -eq "SecurityGroup") {
+
+            Find-SecurityGroupMembers -GroupName $oSharePointGroupMember.Title -GroupID $oSharePointGroupMember.LoginName -Site $Site -LocationURL $LocationURL -AccessType "SharePoint Group $($SharePointGroupTitle)" -AccountType "" -RoleDefinitionBindings $RoleDefinitionBindings
+        }
+        else{
+            
+            Add-ReportRecord -Site $Site -LocationURL $LocationURL -AccessType "SharePoint Group $($SharePointGroupTitle)" -AccountType "User" -Users $oSharePointGroupMember.UserPrincipalName -PermissionLevels $RoleDefinitionBindings
+        }
+    }
+}
+
+function Find-SecurityGroupMembers {
+    param (
+        $GroupName,
+        $GroupID,
+        $Site,
+        $LocationURL,
+        $AccessType,
+        $AccountType,
+        $RoleDefinitionBindings
+    )
+
+    $ExcludedGroups = @("Global Administrator", "SharePoint Administrator", "Everyone", "Everyone except external users", "System Account" )
+
+    If( $GroupName -in $ExcludedGroups ) { Continue }
+
+    Add-ScriptLog -Color White -Msg "Finding users in Security Group '$($GroupName)' '$($GroupID)'"
+
+    $thisAccountType = "Security Group '$($GroupName)' holds ";
+    $AccountType = $AccountType + $thisAccountType
+    
+    $GroupIDClean = Format-LoginName -LoginName $GroupID
+    
+    if([string]::IsNullOrWhiteSpace($GroupID)) { return }
+
+    if($GroupID -clike '*_o'){
+
+        Add-ScriptLog -Color White -Msg "Getting AAD Group Owners '$($GroupName)' '$($GroupIDClean)'"
+        $GroupUsers = Get-PnPAzureADGroupOwner -Identity $GroupIDClean
+    }
+    else{
+
+        Add-ScriptLog -Color White -Msg "Getting AAD Group Members '$($GroupName)' '$($GroupIDClean)'"
+        $GroupUsers = Get-PnPAzureADGroupMember -Identity $GroupIDClean
+    }
+
+    if ($GroupUsers.Count) {
+        Add-ReportRecord -Site $Site -LocationURL $LocationURL -AccessType $AccessType -AccountType $AccountType -Users 'This group has no users' -PermissionLevels $RoleDefinitionBindings
+    }
+
+    foreach ($oUser in $GroupUsers) {
+        
+        Add-ScriptLog -Color White -Msg "Processing member '$($oUser.UserPrincipalName)'"
+        
+        if ($oUser.Type -eq "User") {
+
+            Add-ReportRecord -Site $Site -LocationURL $LocationURL -AccessType $AccessType -AccountType $AccountType -Users $oUser.UserPrincipalName -PermissionLevels $RoleDefinitionBindings
+        }
+        elseif ($oUser.Type -eq "Group") {
+
+            Find-SecurityGroupMembers -GroupName $oUser.DisplayName -GroupID $oUser.UserPrincipalName -Site $Site -LocationURL $LocationURL -AccessType $AccessType -AccountType $AccountType -RoleDefinitionBindings $RoleDefinitionBindings
+        }
+    }
+}
+
+
+function Format-LoginName {
+    param (
+        $LoginName
+    )
+    $GroupID = $LoginName
+    $GroupID = $GroupID -replace ('_o', '')
+    $GroupID = $GroupID -replace ('c:0o.c|federateddirectoryclaimprovider|', '')
+    $GroupID = $GroupID -replace ('c:0t.c|tenant|', '')
+    $GroupID = $GroupID.Trim('|')
+
+    Add-ScriptLog -Color White -Msg "Clean Security Group ID '$($GroupID)'"
+
+    Return $GroupID
+}
+
+
+try {
+    Connect-PnPOnline -Url $AdminSiteURL -Interactive -ErrorAction Stop
+    Add-ScriptLog -Color Cyan -Msg "Connected to SharePoint Admin Center"
+
+    if($TargetSiteCollectionURL) {
+        $collSiteCollections = Get-PnPTenantSite -Identity $TargetSiteCollectionURL
+    }
+    else {
+        $collSiteCollections = Get-PnPTenantSite -ErrorAction Stop | Where-Object{ ($_.Title -notlike "" -and $_.Template -notlike "*Redirect*") }
+    }
+    Add-ScriptLog -Color Cyan -Msg "Collected Site Collections: $($collSiteCollections.count)"
+
+    $TargetUserLoginName = "i:0#.f|membership|$($TargetUserUPN)"
+    Add-ScriptLog -Color Cyan -Msg "User LoginName: $($TargetUserLoginName)"
+
+    $TargetGroupLoginName = "c:0t.c|tenant|$($TargetGroupID)"
+    Add-ScriptLog -Color Cyan -Msg "Group LoginName: $($TargetGroupLoginName)"
+
+    $TargetAADGroup = Get-PnPAzureADGroup -Identity $TargetGroupID -ErrorAction Stop
+    $TargetGroupName = $TargetAADGroup.DisplayName
+    Add-ScriptLog -Color Cyan -Msg "Group Title: $($TargetGroupName)"
+}
+catch {
+    Add-ScriptLog -Color Red -Msg "Error: $($_.Exception.Message)"
+    break
+}
+
+$ItemCounter = 0
+$ItemCounterStep = 1 / $collSiteCollections.Count
+ForEach($oSite in $collSiteCollections) {
+
+    $PercentComplete = [math]::Round($ItemCounter/$collSiteCollections.Count * 100, 2)
+    Add-ScriptLog -Color Yellow -Msg "$($PercentComplete)% Completed - Processing Site Collection: $($oSite.URL)"
+    $ItemCounter++
+
+    Try {
+        Set-PnPTenantSite -Url $oSite.Url -Owners $SiteCollAdmin -ErrorAction Stop
+
+        Connect-PnPOnline -Url $oSite.URL -Interactive
+
+        $Web = Get-PnPWeb -Includes RoleAssignments
+
+        if( Find-User -Site $oSite ) {
+            Search-SitePermissions -Site $Web
+        }
+
+        $collSubsites = Get-PnPSubWeb -Recurse -Includes HasUniqueRoleAssignments, RoleAssignments
+        ForEach($oSubsite in $collSubsites) {
+            
+            $PercentComplete = [math]::Round( $PercentComplete + ( ($ItemCounterStep / ($collSubsites.Count + 1)) * 100 ), 2 )
+            Add-ScriptLog -Color Yellow -Msg "$($PercentComplete)% Completed - Processing Subsite: $($oSubsite.Url)"
+
+            Connect-PnPOnline -Url $oSubsite.URL -Interactive
+
+            if( (Find-User -Site $oSubsite) ) {
+                Search-SitePermissions -Site $oSubsite
+            }
+        }
+    }
+    Catch {
+        Add-ScriptLog -Color Red -Msg "Error while processing Site Collection '$($oSite.Url)'"
+        Add-ScriptLog -Color Red -Msg "Error message: '$($_.Exception.Message)'"
+        Add-ScriptLog -Color Red -Msg "Error Script Line: '$($_.InvocationInfo.ScriptLineNumber)'"
+        Add-ReportRecord -Site $oSite -Remarks $_.Exception.Message
+    }
+
+    Connect-PnPOnline -Url $oSite.Url -Interactive
+    Remove-PnPSiteCollectionAdmin -Owners $SiteCollAdmin
+}
+
+$PercentComplete = [math]::Round($ItemCounter/$collSiteCollections.Count * 100, 1)
+Add-ScriptLog -Color Cyan -Msg "$($PercentComplete)% Completed - Finished running script"
+Add-ScriptLog -Color Cyan -Msg "Report generated at at $($ReportOutput)"
+```
+
+<br>
+
 ## Permissions from a specific location in a Site
 
 ```powershell
