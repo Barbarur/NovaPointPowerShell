@@ -312,6 +312,7 @@ function Add-ReportRecord {
         VersionsQty = $Versions.Count
         ItemSizeMB = [Math]::Round(($FileSizeBytes/1MB),1)
         TotalItemSizeMB = [Math]::Round(($FileSizeTotalBytes/1MB),1)
+        Remarks = $Remarks
         })
     
     $Record | Export-Csv -Path $ReportOutput -NoTypeInformation -Append
@@ -372,8 +373,6 @@ function Find-Lists {
     }
 }
 
-
-
 function Find-Items {
     param (
         $SiteUrl,
@@ -382,10 +381,12 @@ function Find-Items {
     
     Add-ScriptLog -Color White -Msg "Finding '$($List.ItemCount)' Files and Items in '$($List.Title)'"
 
-    $collItems = Get-PnPListItem -List $List.Title -PageSize 2000
+    $collItems = Get-PnPListItem -List $List.Title -PageSize 5000
 
     foreach ( $oItem in $collItems) {
         
+        Add-ScriptLog -Color White -Msg "Processing '$($oItem["FileRef"])'"
+
         If($List.BaseType -eq "DocumentLibrary") {
 
             Add-ReportRecord -SiteUrl $SiteUrl -ListTitle $List.Title -Item $oItem -ItemName $oItem["FileLeafRef"] -FileSizeBytes $oItem["File_x0020_Size"] -FileSizeTotalBytes $FileSizeTotalBytes = $oItem["SMTotalSize"].LookupId
@@ -459,9 +460,4 @@ if($collSiteCollections.Count -ne 0) {
     Add-ScriptLog -Color Cyan -Msg "$($PercentComplete)% Completed - Finished running script"
 }
 Add-ScriptLog -Color Cyan -Msg "Report generated at at $($ReportOutput)"
-
-
-
-
-#Disconnect-PnPOnline
 ```
