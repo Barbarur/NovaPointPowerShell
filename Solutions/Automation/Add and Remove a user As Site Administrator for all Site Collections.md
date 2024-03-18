@@ -76,9 +76,9 @@ Function Add-ScriptLog($Color, $Msg)
 }
 
 # Create Report location
-$FolderPath = "$Env:USERPROFILE\Documents\NovaPoint\QuickFix\"
+$FolderPath = "$Env:USERPROFILE\Documents\"
 $Date = Get-Date -Format "yyyyMMddHHmmss"
-$ReportName = "IDMismatch"
+$ReportName = "RemoveAdmin"
 $FolderName = $Date + "_" + $ReportName
 New-Item -Path $FolderPath -Name $FolderName -ItemType "directory"
 

@@ -8,7 +8,7 @@
 #################################################################
 # DEFINE PARAMETERS FOR THE CASE
 #################################################################
-$AdminSiteURL= "https://<Domain>-admin.sharepoint.com"
+$AdminSiteURL= "https://m365x52939224-admin.sharepoint.com"
 
 
 
@@ -18,21 +18,17 @@ $AdminSiteURL= "https://<Domain>-admin.sharepoint.com"
 
 function Add-ReportRecord {
     param (
-        $Site,
-        $OwnerType,
-        $OwnerQty,
-        $User
+        $SiteUrl,
+        $Owners,
+        $Remarks
     )
 
     $Record = New-Object PSObject -Property ([ordered]@{
-        SiteName               = $Site.Title
-        SiteURL                = $Site.Url
-        OwnerType              = $OwnerType
-        OwnerQty               = $OwnerQty
-        OwnerName              = $User.DisplayName
-        OwnerEmail             = $User.Mail
+        SiteUrl = $SiteUrl
+        Owners = $Owners
+        Remarks = $Remarks
         })
-    
+
     $Record | Export-Csv -Path $ReportOutput -NoTypeInformation -Append
 }
 
@@ -44,7 +40,7 @@ Function Add-ScriptLog($Color, $Msg) {
 }
 
 # Create Report location
-$FolderPath = "$Env:USERPROFILE\Documents\SPOScripts\"
+$FolderPath = "$Env:USERPROFILE\Documents\"
 $Date = Get-Date -Format "yyyyMMddHHmmss"
 $ReportName = "SitesAdminsReport"
 $FolderName = $Date + "_" + $ReportName
@@ -65,14 +61,12 @@ try {
     Connect-PnPOnline -Url $AdminSiteURL -Interactive -ErrorAction Stop
     Add-ScriptLog -Color Cyan -Msg "Connected to SharePoint Online"
 
-    Connect-AzureAD -Interactive -ErrorAction Stop
-    Add-ScriptLog -Color Cyan -Msg "Connected to Azure AD"
-
     $collSiteCollections = Get-PnPTenantSite | Where-Object{ ($_.Title -notlike "" -and $_.Template -notlike "*Redirect*") }
     Add-ScriptLog -Color Cyan -Msg "Collected Items: $($collSiteCollections.Count)"
 }
 catch {
-    Add-ScriptLog -Color Red -Msg "Error: $($_.Exception.Message)"
+    Add-ScriptLog -Color Red -Msg "Error message: '$($_.Exception.Message)'"
+    Add-ScriptLog -Color Red -Msg "Error trace: '$($_.Exception.ScriptLineNumber)'"
     break
 }
 
@@ -83,37 +77,30 @@ ForEach($oSite in $collSiteCollections) {
     Add-ScriptLog -Color Yellow -Msg "$($PercentComplete)% Completed - Processing Item '$($oSite.URL)'"
     $ItemCounter++
 
-    
-    $OwnerQty = "Single Owner"
+    Try {
+        $Site = Get-PnPTenantSite -Identity $oSite.Url
 
-    If($Site.GroupID -notLike "00000000-0000-0000-0000-000000000000") {
-        Try {
-            $Owners = Get-AzureADGroupOwner -ObjectId $Site.GroupId
-
-            If($Owners.Count -ne 1) {$OwnerQty = "Multiple Owners"}
-
-            ForEach($Owner in $Owners.UserPrincipalName) {
-                $User = Get-AzureADUser -ObjectId $Owner
-                Add-ReportRecord -Site $oSite -OwnerType "MS365 Group" -OwnerQty $OwnerQty -User $User
+        If($Site.GroupId -notlike "00000000-0000-0000-0000-000000000000") {
+            $GroupOwners = (Get-PnPMicrosoft365GroupOwners -Identity ($Site.GroupId)  | Select-Object -ExpandProperty Email) -join "; "
+        }
+        elseif($Site.OwnerLoginName -like "*c:0t.c|tenant|*") {
+            try{
+                $GroupOwners = (Get-PnPAzureADGroup -Identity ($Site.Owner)  | Select-Object -ExpandProperty Email) -join "; "
             }
-        }
-        Catch {
-            Add-ReportRecord -Site $oSite -OwnerType "MS365 Group" -OwnerQty "DELETED GROUP"
-        }
-    }
-    Else {
-        If($Site.Owner.Length -eq 0) {
-            Add-ReportRecord -Site $oSite -OwnerType "User" -OwnerQty "No Owner" -User ""
+            catch {
+                $GroupOwners = "'$($Site.OwnerName)' Security group"
+            }
         }
         Else {
-            Try {
-                $User = Get-AzureADUser -ObjectId $Site.Owner
-                Add-ReportRecord -Site $oSite -OwnerType "User" -OwnerQty $OwnerQty -User $User
-            }
-            Catch {
-                Add-ReportRecord -Site $oSite -OwnerType "User" -OwnerQty "DELETED GROUP"
-            }
+            $GroupOwners = $Site.Owner
         }
+        Add-ReportRecord -SiteUrl $oSite.Url -Owners $GroupOwners
+    }
+    Catch {
+        Add-ScriptLog -Color Red -Msg "Error while processing Site Collection '$($oSite.Url)'"
+        Add-ScriptLog -Color Red -Msg "Error message: '$($_.Exception.Message)'"
+        Add-ScriptLog -Color Red -Msg "Error Script Line: '$($_.InvocationInfo.ScriptLineNumber)'"
+        Add-ReportRecord -SiteUrl $oSite.Url -Remarks $_.Exception.Message
     }
 }
 
