@@ -85,7 +85,6 @@ try {
     Connect-PnPOnline -Url $AdminSiteURL -Interactive -ErrorAction Stop
     Add-ScriptLog -Color Cyan -Msg "Connected to SharePoint Admin Center"
 
-    #$collSiteCollections = Get-PnPTenantSite | Where-Object { ($_.Title -notlike "" -and $_.Template -notlike "*Redirect*" -and $_.Url -like "https://m365x88421522.sharepoint.com/sites/NorAqilaClassic") }
     $collSiteCollections = Get-PnPTenantSite | Where-Object { ($_.Title -notlike "" -and $_.Template -notlike "*Redirect*") }
     Add-ScriptLog -Color Cyan -Msg "Collected all Site Collections: $($collSiteCollections.Count)"
 }

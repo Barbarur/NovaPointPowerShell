@@ -1,4 +1,4 @@
-#Report #SharePointOnline #OneDrive #PowerShell #Pnp #SPOService #SiteCollection #SiteAdmin 
+#Report #SharePointOnline #OneDrive #PowerShell #PnP #SPOService #SiteCollection #SiteAdmin 
 
 <br>
 
@@ -8,7 +8,7 @@
 #################################################################
 # DEFINE PARAMETERS FOR THE CASE
 #################################################################
-$AdminSiteURL= "https://m365x52939224-admin.sharepoint.com"
+$AdminSiteURL= "https://<Domain>-admin.sharepoint.com"
 
 
 
@@ -77,24 +77,31 @@ ForEach($oSite in $collSiteCollections) {
     Add-ScriptLog -Color Yellow -Msg "$($PercentComplete)% Completed - Processing Item '$($oSite.URL)'"
     $ItemCounter++
 
+    $Remarks = ""
     Try {
-        $Site = Get-PnPTenantSite -Identity $oSite.Url
 
-        If($Site.GroupId -notlike "00000000-0000-0000-0000-000000000000") {
-            $GroupOwners = (Get-PnPMicrosoft365GroupOwners -Identity ($Site.GroupId)  | Select-Object -ExpandProperty Email) -join "; "
+        If($oSite.GroupId -notlike "00000000-0000-0000-0000-000000000000") {
+            try {
+                $GroupOwners = (Get-PnPMicrosoft365GroupOwners -Identity ($oSite.GroupId)  | Select-Object -ExpandProperty Email) -join "; "
+            }
+            catch{
+                $GroupOwners = "Group does not exist in Azure AD"
+                $Remarks = "Group does not exist in Azure AD"
+            }
         }
         elseif($Site.OwnerLoginName -like "*c:0t.c|tenant|*") {
             try{
-                $GroupOwners = (Get-PnPAzureADGroup -Identity ($Site.Owner)  | Select-Object -ExpandProperty Email) -join "; "
+                $GroupOwners = (Get-PnPAzureADGroup -Identity ($oSite.Owner)  | Select-Object -ExpandProperty Email) -join "; "
             }
             catch {
-                $GroupOwners = "'$($Site.OwnerName)' Security group"
+                $GroupOwners = "'$($oSite.OwnerName)' Security group"
+                $Remarks = "Group does not exist in Azure AD"
             }
         }
         Else {
-            $GroupOwners = $Site.Owner
+            $GroupOwners = $oSite.Owner
         }
-        Add-ReportRecord -SiteUrl $oSite.Url -Owners $GroupOwners
+        Add-ReportRecord -SiteUrl $oSite.Url -Owners $GroupOwners -Remarks $Remarks
     }
     Catch {
         Add-ScriptLog -Color Red -Msg "Error while processing Site Collection '$($oSite.Url)'"
@@ -104,10 +111,7 @@ ForEach($oSite in $collSiteCollections) {
     }
 }
 
-if($collSiteCollections.Count -ne 0) { 
-    $PercentComplete = [math]::Round($ItemCounter/$collSiteCollections.Count * 100, 1) 
-    Add-ScriptLog -Color Cyan -Msg "$($PercentComplete)% Completed - Finished running script"
-}
+Add-ScriptLog -Color Cyan -Msg "100% Completed - Finished running script"
 Add-ScriptLog -Color Cyan -Msg "Report generated at at $($ReportOutput)"
 ```
 
@@ -117,7 +121,7 @@ Add-ScriptLog -Color Cyan -Msg "Report generated at at $($ReportOutput)"
 
 ```powershell
 #Define Parameters
-$AdminSiteURL= "https://DOMAIN-admin.sharepoint.com"
+$AdminSiteURL= "https://<Domain>-admin.sharepoint.com"
 $ReportOutput = "C:\AdminOwnerPermissions.csv"
 
 
