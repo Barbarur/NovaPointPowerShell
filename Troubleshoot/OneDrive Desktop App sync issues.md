@@ -11,7 +11,7 @@ Restart OneDrive again. You can find it on your _All Apps_ at the _Start._ Or ty
 ## Clean the cache
 
 1. Navigate to:
-> *C:\Users\{USERNAME}\AppData\Local\Microsoft\Office\16.0*
+> *C:*\\Users\\{USERNAME}\\AppData\\Local\\Microsoft\\Office\\16.0*
 
 2. Delete everything inside that folder.
 <br>
@@ -28,15 +28,16 @@ Restart OneDrive again. You can find it on your _All Apps_ at the _Start._ Or ty
 1. Open _Run_ by pressing _Windows Key + R_.
 
 2. Type the below dialog and press
-> *%localappdata%\Microsoft\OneDrive\onedrive.exe /reset*
+> *%localappdata%\\Microsoft\\OneDrive\\onedrive.exe /reset*
 > If Windows cannot find onedrive.exe on that location, try either these 2 locations instead:
->> *C:\Program Files\Microsoft OneDrive\onedrive.exe /reset*
->> *C:\Program Files (x86)\Microsoft OneDrive\onedrive.exe /reset*
+>> *C:\\Program Files\\Microsoft OneDrive\\onedrive.exe /reset*
+>> *C:\\Program Files (x86)\\Microsoft OneDrive\\onedrive.exe /reset*
 
 3. The OneDrive icon logo will disappear for a minute and re-appear afterwards.
 
 4. If OneDrive doesn’t re-start automatically. Open again _Run,_ write the below dialog and press
-> *%localappdata%\Microsoft\OneDrive\onedrive.exe*
+> *%localappdata%\\Microsoft\\OneDrive\\onedrive.exe*
+
 <br>
 ## Check and delete old app versions
 
@@ -49,7 +50,7 @@ Restart OneDrive again. You can find it on your _All Apps_ at the _Start._ Or ty
 4. Write _Regedit_  and press OK. 
 
 5. Navigate to the below address:
-> *Computer\HKEY_CURRENT_USER\SOFTWARE\Microsoft\OneDrive\*
+> *Computer\\HKEY_CURRENT_USER\\SOFTWARE\\Microsoft\\OneDrive\\*
 
 6. You should see a folder with a name the same as the version number you checked before. If you see other folders with different version numbers, then delete those. Ignore any other folder with normal names, we only focus on the ones with numbers as name. 
 
@@ -69,7 +70,7 @@ The data should be the same. If the _InstallPaths_ has more than one data. Do
 <br>
 ## Check in a different network.
 
-Possibly the issue is not with the OneDrive Desktop App, but with the network you are using blocking connection to certains IPs.
+Possibly the issue is not with the OneDrive Desktop App, but with the network you are using blocking connection to certain IPs.
 <br>
 ## Connect from a different device
 
@@ -95,16 +96,16 @@ Also, if you have a big volume of documents, even if they are no heavy, it is be
 
 ## Collect OneDrive Sync Logs
 
-1. Navigate to: _%localappdata%\Microsoft\OneDrive\<CurrentInstalledVersion>_
+1. Navigate to: _%localappdata%\\Microsoft\\OneDrive\\{CurrentInstalledVersion}_
 
 If you cannot find the folder named as the current installed version, check the below locations
 
--   _C:\Program Files\Microsoft OneDrive\_
--   _C:\Program Files (x86)\Microsoft OneDrive\_
+-   _C:\\Program Files\\Microsoft OneDrive\\_
+-   _C:\\Program Files (x86)\\Microsoft OneDrive\\_
 
 2. Search for the file **_CollectSyncLogs.bat_** and run it.
 
-3. CollectSyncLogs.bat would open a terminal window while collecting the logs, and it will close it automatically once the operation finish.
+3. **CollectSyncLogs.bat** would open a terminal window while collecting the logs, and it will close it automatically once the operation finish.
 
 4. Once the operation finish, you will find a .CAB file on the desktop.
 
