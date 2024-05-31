@@ -1,7 +1,131 @@
-#Automation #PnP #PowerShell #PreservationHolLibrary #PHL #RetentionPolicy #SharePointOnline 
+#Automation #PnP #PowerShell #PreservationHolLibrary #PHL #RetentionPolicy #SharePointOnline #Remove #File #ListItem
 
 <br>
 
+## Remove Files from a Folder
+
+```powershell
+#################################################################
+# DEFINE PARAMETERS FOR THE CASE
+#################################################################
+$SiteURL = "https://Domain.sharepoint.com/sites/SitName"
+$ListName ="Documents"
+$FolderServerRelativeUrl = "/sites/SiteName/Library/Samples/Demo"
+
+
+
+#################################################################
+# REPORT AND LOGS FUNCTIONS
+#################################################################
+# Add new record on the report
+Function Add-ReportRecord{
+    param (
+        $Item,
+        $Remarks
+    )
+    $Record = New-Object PSObject -Property ([ordered]@{
+        FileTitle = $Item.FileTitle
+        FilePath = $Item.FilePath
+        Remarks = $Remarks
+        })
+    
+    $Record | Export-Csv -Path $ReportOutput -NoTypeInformation -Append
+}
+
+Function Add-ScriptLog {
+    param (
+        $Color,
+        $Msg
+    )
+
+    Write-host -f $Color $Msg
+    $Date = Get-Date -Format "yyyy/MM/dd HH:mm"
+    $Msg = $Date + " - " + $Msg
+    Add-Content -Path $LogsOutput -Value $Msg
+}
+
+# Create Report location
+$FolderPath = "$Env:USERPROFILE\Documents\"
+$Date = Get-Date -Format "yyyyMMddHHmmss"
+$ReportName = "RemoveFiles"
+$FolderName = $Date + "_" + $ReportName
+New-Item -Path $FolderPath -Name $FolderName -ItemType "directory"
+
+# Files
+$ReportOutput = $FolderPath + $FolderName + "\" + $FolderName + "_report.csv"
+$LogsOutput = $FolderPath + $FolderName + "\" + $FolderName + "_Logs.txt"
+
+Add-ScriptLog -Color Cyan -Msg "Report will be generated at $($ReportOutput)"
+
+
+
+#################################################################
+# SCRIPT LOGIC
+#################################################################
+
+$ItemsColl = @()
+try {
+    Connect-PnPOnline -Url $SiteURL -Interactive -ErrorAction Stop
+    Add-ScriptLog -Color Cyan -Msg "Connected to Site and Collected Items"
+
+    $FolderFilter = $FolderServerRelativeUrl + "*"
+    try {
+        $ItemsList = Get-PnPListItem -List $ListName -FolderServerRelativeUrl $FolderServerRelativeUrl | Where-Object { $_["FileRef"] -Like $FolderFilter }
+        Add-ScriptLog -Color Cyan -Msg "Collected Items: $($ItemsList.Count)"
+    }
+    catch {
+        $list = Get-PnPList -Identity $ListName
+
+        Add-ScriptLog -Color Yellow -Msg "Folder containes more than 5k items. Script will have to collect all items in the list and then filter based on the path."
+        Add-ScriptLog -Color Yellow -Msg "Library has $($list.ItemCount) items"
+
+        $ItemsList = Get-PnPListItem -List $ListName -PageSize 5000 -ErrorAction Stop | Where-Object { $_["FileRef"] -Like $FolderFilter }
+        Add-ScriptLog -Color Cyan -Msg "Collected Items: $($ItemsList.Count)"
+    }
+
+    ForEach ($Item in $ItemsList)
+    {
+        $ItemsColl += New-Object PSObject -Property ([ordered]@{
+            FileID = $Item.Id
+            FileTitle = $Item["FileLeafRef"]
+            FilePath = $Item["FileRef"]
+            Created = $Item["Created"]
+            Createdby = $Item["Author"].Email
+            Modified = $Item["Modified"]
+            Modifiedby = $Item["Editor"].Email
+            })
+    }
+
+    $ItemsColl = $ItemsColl | Sort-Object -Descending -Property FilePath
+
+}
+catch {
+    Add-ScriptLog -Color Red -Msg "Error: $($_.Exception.Message)"
+    break
+}
+
+$ItemCounter = 0
+ForEach ($Item in $ItemsColl)
+{
+        $PercentComplete = [math]::Round($ItemCounter/$ItemsColl.Count * 100, 1)
+        Add-ScriptLog -Color Yellow -Msg "$($PercentComplete)% Completed - Removing item: $($Item.FilePath)"
+        $ItemCounter++
+
+    try {
+        # Remove-PnPListItem -List $ListName -Identity $Item.FileID -Recycle -Force -ErrorAction Stop
+        Add-ReportRecord -Item $Item -Remarks "Completed" 
+    }
+    catch {
+        Add-ScriptLog -Color Red -Msg "Error while processing $($Item.FilePath)"
+        Add-ScriptLog -Color Red -Msg "Error message: '$($_.Exception.Message)'"
+        Add-ScriptLog -Color Red -Msg "Error Script Line: '$($_.Exception.ScriptLineNumber)'"
+        Add-ReportRecord -Item $Item -Remarks $_.Exception.Message
+    }
+}
+
+Add-ScriptLog -Color Cyan -Msg "100% Completed - Finished running script"
+Add-ScriptLog -Color Cyan -Msg "Report generated at at $($ReportOutput)"
+```
 ## Remove files from Document Library
 
 ```powershell

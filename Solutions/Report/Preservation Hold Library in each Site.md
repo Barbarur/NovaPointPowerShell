@@ -38,7 +38,7 @@ Function Add-ScriptLog($Color, $Msg)
 }
 
 # Create Report location
-$FolderPath = "$Env:USERPROFILE\Documents\NovaPoint\Report\"
+$FolderPath = "$Env:USERPROFILE\Documents\"
 $Date = Get-Date -Format "yyyyMMddHHmmss"
 $ReportName = "PHLReport"
 $FolderName = $Date + "_" + $ReportName

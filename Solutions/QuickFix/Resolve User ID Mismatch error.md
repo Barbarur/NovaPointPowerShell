@@ -6,9 +6,10 @@
 #################################################################
 # DEFINE PARAMETERS FOR THE CASE
 #################################################################
-$AdminSiteURL = "https://<DOMAIN>-admin.sharepoint.com" # SharePoint Admin Center Url
-$SiteCollAdmin = "<ADMIN@EMAIL.com>" # Global or SharePoint Admin used for loging running the script.
-$AffectedUser = "<AFFECTEDUSER@EMAIL.com>" # Email of the affected user.
+$AdminSiteURL = "https://contoso-admin.sharepoint.com" # SharePoint Admin Center Url
+$SiteCollAdmin = "admin@email.com" # Global or SharePoint Admin used for loging running the script.
+$AffectedUser = "affecteduser@email.com>" # Email of the affected user.
+$ReportMode = $true
 
 
 
@@ -55,26 +56,23 @@ Add-ScriptLog -Color Cyan -Msg "Report will be generated at $($ReportOutput)"
 function Remove-UserIDMismatch ($Site) {
     try {
         Connect-PnPOnline -Url $Site.Url -Interactive -ErrorAction Stop
-        Add-ScriptLog -Color White -Msg "Connected to Site"
 
         $User = Get-PnPUser -Identity $properties.AccountName | Where-Object { $_.Email -eq $AffectedUser -and $_.UserId.NameId -ne $UserID }
         
-        If ($User.Length -eq 0) {
-            Add-ScriptLog -Color White -Msg "No issue found."
-        }
-        Else {
+        If ($User.Length -ne 0) {
             Add-ScriptLog -Color White -Msg "User with incorrect SharePoint ID $($Site.UserId.NameId) found on this site."
             
-            if($User.IsSiteAdmin) {
-                # Remove-PnPSiteCollectionAdmin -Owners $AffectedUser -ErrorAction Stop
-                Add-ScriptLog -Color White -Msg "User removed as Site Collection Admin."
-                Add-ReportRecord -SiteURL $Site.Url -Action "Removed user as Site Collection Admin"
+            if($User.IsSiteAdmin) {                
+                if ($ReportMode -eq $false) { Remove-PnPSiteCollectionAdmin -Owners $AffectedUser -ErrorAction Stop }
+                Add-ScriptLog -Color White -Msg "User $($properties.AccountName) removed as Site Collection Admin"
+                Add-ReportRecord -SiteURL $Site.Url -Action "User $($properties.AccountName) removed as Site Collection Admin"
             }
-
-            # Remove-PnPUser -Identity $User.ID -Force -ErrorAction Stop
-            Add-ScriptLog -Color White -Msg "User removed from target Site"
-            Add-ReportRecord -SiteURL $Site.Url -Action "Removed user from Site"
+    
+            if ($ReportMode -eq $false) { Remove-PnPUser -Identity $User.ID -Force -ErrorAction Stop }
+            Add-ScriptLog -Color White -Msg "User $($properties.AccountName) removed from target Site"
+            Add-ReportRecord -SiteURL $Site.Url -Action "User $($properties.AccountName) removed from target Site"
         }
+
     }
     catch {
         throw
@@ -86,8 +84,12 @@ try {
     Connect-PnPOnline -Url $AdminSiteURL -Interactive -ErrorAction Stop
     Add-ScriptLog -Color Cyan -Msg "Connected to SharePoint Admin Center"
 
+    # Get all Site Collections
     $collSiteCollections = Get-PnPTenantSite | Where-Object{ ($_.Title -notlike "" -and $_.Template -notlike "*Redirect*") }
-    #$collSiteCollections = Get-PnPTenantSite -IncludeOneDriveSites -Filter "Url -like '-my.sharepoint.com/personal/'" | Where-Object{ $_.Title -notlike "" -and $_.Template -notlike "*Redirect*" }
+    
+    # Get all OneDrive
+    # $collSiteCollections = Get-PnPTenantSite -IncludeOneDriveSites -Filter "Url -like '-my.sharepoint.com/personal/'" | Where-Object{ $_.Title -notlike "" -and $_.Template -notlike "*Redirect*" }
+    
     Add-ScriptLog -Color Cyan -Msg "Collected all Site Collections: $($collSiteCollections.Count)"
 }
 catch {
@@ -121,7 +123,6 @@ ForEach($oSite in $collSiteCollections) {
     Add-ScriptLog -Color Yellow -Msg "$($PercentComplete)% Completed - Processing Site Collection: $($oSite.Url)"
     $ItemCounter++
 
-    
     Try {
         Set-PnPTenantSite -Url $oSite.Url -Owners $SiteCollAdmin
 
@@ -140,9 +141,6 @@ ForEach($oSite in $collSiteCollections) {
 
 }
 
-if($collSiteCollections.Count -ne 0) { 
-    $PercentComplete = [math]::Round($ItemCounter/$collSiteCollections.Count * 100, 1) 
-    Add-ScriptLog -Color Cyan -Msg "$($PercentComplete)% Completed - Finished running script"
-}
+Add-ScriptLog -Color Cyan -Msg "100% Completed - Finished running script"
 Add-ScriptLog -Color Cyan -Msg "Report generated at at $($ReportOutput)"
 ```

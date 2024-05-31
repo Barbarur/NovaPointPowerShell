@@ -41,7 +41,7 @@ Function Add-ScriptLog($Color, $Msg)
 }
 
 # Create Report location
-$FolderPath = "$Env:USERPROFILE\Documents\NovaPoint\Automation\"
+$FolderPath = "$Env:USERPROFILE\Documents\"
 $Date = Get-Date -Format "yyyyMMddHHmmss"
 $ReportName = "RestoreRecycledFiles"
 $FolderName = $Date + "_" + $ReportName
