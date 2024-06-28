@@ -2,6 +2,8 @@
 
 <br>
 
+## Only storage
+
 ```powershell
 #################################################################
 # DEFINE PARAMETERS FOR THE CASE
@@ -92,5 +94,63 @@ if($collSiteCollections.Count -ne 0) {
     $PercentComplete = [math]::Round($ItemCounter/$collSiteCollections.Count * 100, 1) 
     Add-ScriptLog -Color Cyan -Msg "$($PercentComplete)% Completed - Finished running script"
 }
+Add-ScriptLog -Color Cyan -Msg "Report generated at at $($ReportOutput)"
+```
+
+<br>
+
+## Gross list of parameters
+
+```powershell
+#################################################################
+# DEFINE PARAMETERS FOR THE CASE
+#################################################################
+$AdminSiteURL= "https://Domain-admin.sharepoint.com"
+
+
+
+#################################################################
+# REPORT AND LOGS FUNCTIONS
+#################################################################
+
+Function Add-ScriptLog($Color, $Msg) {
+    Write-host -f $Color $Msg
+    $Date = Get-Date -Format "yyyy/MM/dd HH:mm"
+    $Msg = $Date + " - " + $Msg
+    Add-Content -Path $LogsOutput -Value $Msg
+}
+
+# Create Report location
+$FolderPath = "$Env:USERPROFILE\Documents\"
+$Date = Get-Date -Format "yyyyMMddHHmmss"
+$ReportName = "SiteCollections"
+$FolderName = $Date + "_" + $ReportName
+New-Item -Path $FolderPath -Name $FolderName -ItemType "directory"
+
+# Files
+$ReportOutput = $FolderPath + $FolderName + "\" + $FolderName + "_report.csv"
+$LogsOutput = $FolderPath + $FolderName + "\" + $FolderName + "_Logs.txt"
+
+Add-ScriptLog -Color Cyan -Msg "Report will be generated at $($ReportOutput)"
+
+
+
+#################################################################
+# SCRIPT LOGIC
+#################################################################
+
+try {
+    Connect-SPOService -Url $AdminSiteURL -ErrorAction Stop
+    Add-ScriptLog -Color Cyan -Msg "Connected to SharePoint Online"
+
+    Get-SPOSite -Limit ALL -IncludePersonalSite $True | Where-Object{ ($_.Title -notlike "" -and $_.Template -notlike "*Redirect*") } | Export-Csv -Path $ReportOutput -NoTypeInformation
+}
+catch {
+    Add-ScriptLog -Color Red -Msg "Error message: '$($_.Exception.Message)'"
+    Add-ScriptLog -Color Red -Msg "Error trace: '$($_.Exception.ScriptStackTrace)'"
+    break
+}
+
+Add-ScriptLog -Color Cyan -Msg "100% Completed - Finished running script"
 Add-ScriptLog -Color Cyan -Msg "Report generated at at $($ReportOutput)"
 ```

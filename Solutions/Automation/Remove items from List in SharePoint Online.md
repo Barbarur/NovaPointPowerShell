@@ -10,7 +10,7 @@
 #################################################################
 $SiteURL = "https://Domain.sharepoint.com/sites/SitName"
 $ListName ="Documents"
-$FolderServerRelativeUrl = "/sites/SiteName/Library/Samples/Demo"
+$FolderServerRelativeUrl = "/sites/SitName/Shared Documents/Folder/Subfolder"
 
 
 
@@ -93,6 +93,7 @@ try {
             Createdby = $Item["Author"].Email
             Modified = $Item["Modified"]
             Modifiedby = $Item["Editor"].Email
+            Remarks = $Remarks
             })
     }
 
@@ -118,7 +119,7 @@ ForEach ($Item in $ItemsColl)
     catch {
         Add-ScriptLog -Color Red -Msg "Error while processing $($Item.FilePath)"
         Add-ScriptLog -Color Red -Msg "Error message: '$($_.Exception.Message)'"
-        Add-ScriptLog -Color Red -Msg "Error Script Line: '$($_.Exception.ScriptLineNumber)'"
+        Add-ScriptLog -Color Red -Msg "Error Script Line: '$($_.Exception.ScriptStackTrace)'"
         Add-ReportRecord -Item $Item -Remarks $_.Exception.Message
     }
 }

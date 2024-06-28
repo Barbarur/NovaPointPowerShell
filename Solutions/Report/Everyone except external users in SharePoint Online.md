@@ -2,122 +2,74 @@
 
 <br>
 
-## External users in all Sites
+## Legacy script
 
 ```powershell
-################################################################
-# PARAMETERS TO BE CHANGED TO MATCH CURRENT CASE
-################################################################
-$AdminSiteURL = "https://Domain-admin.sharepoint.com/"
-$AdminUPN = "Admin@Email.com" # UPN of Global Admin or SharePoint Admin
+#Define Parameters
+$AdminSiteURL= "https://DOMAIN-admin.sharepoint.com"
+$ReportOutput = "C:\Temp\EveryoneReport.csv"
 
+#Connect to PnP Online
+Connect-PnPOnline -Url $AdminSiteURL -interactive
 
+#Get owners of each Site
+$Results = @()
+$ItemCounter = 0 
 
-################################################################
-# REPORT AND LOGS FUNCTIONS
-################################################################
+#Get all Sites and itinerate
+$TenantSites = Get-PnPTenantSite | Where{ ($_.Title -notlike "" -and $_.Template -notlike "*Redirect*" -and $_.Url -notlike "*my.sharepoint.com*") }
+ForEach($TenantSite in $TenantSites){
 
-function Add-ReportRecord {
-    param (
-        $SiteUrl,
-        $Remarks
-    )
-
-    $Record = New-Object PSObject -Property ([ordered]@{
-        SiteUrl = $SiteUrl
-        Remarks = $Remarks
-        })
-
-    $Record | Export-Csv -Path $ReportOutput -NoTypeInformation -Append
-}
-
-Function Add-ScriptLog($Color, $Msg) {
-    $Date = Get-Date -Format "yyyy/MM/dd HH:mm"
-    $Msg = $Date + " - " + $Msg
-    Add-Content -Path $LogsOutput -Value $Msg
-    Write-host -f $Color $Msg
-}
-
-
-# Create Report location
-$FolderPath = "$Env:USERPROFILE\Documents\"
-$Date = Get-Date -Format "yyyyMMddHHmmss"
-$ReportName = "EveryoneExceptExternal"
-$FolderName = $Date + "_" + $ReportName
-New-Item -Path $FolderPath -Name $FolderName -ItemType "directory"
-
-# Files
-$ReportOutput = $FolderPath + $FolderName + "\" + $FolderName + "_report.csv"
-$LogsOutput = $FolderPath + $FolderName + "\" + $FolderName + "_Logs.txt"
-
-Add-ScriptLog -Color Cyan -Msg "Report will be generated at $($ReportOutput)"
-
-
-
-#################################################################
-# SCRIPT LOGIC
-#################################################################
-
-function Get-EveryoneExceptExternal {
-    param (
-        $SiteUrl
-    )
-
-    try {
-
-        $oUser = Get-PnPUser -WithRightsAssigned | Where-Object { $_.Title -eq "Everyone except external users" }
-        
-        if ($oUser) {
-            Add-ReportRecord -SiteUrl $oSite.Url -Remarks "Everyone except external users found"
-        }
-        
-    }
-    Catch {
-        Add-ScriptLog -Color Red -Msg "Error while processing user '$($UserLoginName)'"
-        Add-ScriptLog -Color Red -Msg "Error message: '$($_.Exception.Message)'"
-        Add-ScriptLog -Color Red -Msg "Error Script Line: '$($_.InvocationInfo.ScriptLineNumber)'"
-        Add-ReportRecord -SiteUrl $oSite.Url -Remarks $_.Exception.Message
-    }
-}
-
-try {
-    Connect-PnPOnline -Url $AdminSiteURL -Interactive -ErrorAction Stop
-    Add-ScriptLog -Color Cyan -Msg "Connected to SharePoint Admin Center"
-    
-    $collSiteCollections = Get-PnPTenantSite | Where-Object{ ($_.Title -notlike "" -and $_.Template -notlike "*Redirect*") }
-    # $collSiteCollections = Get-PnPTenantSite -GroupIdDefined $true | Where-Object{ ($_.Title -notlike "" -and $_.Template -notlike "*Redirect*") }
-    Add-ScriptLog -Color Cyan -Msg "Collected Site Collections: $($collSiteCollections.count)"
-}
-catch {
-    Add-ScriptLog -Color Red -Msg "Error: $($_.Exception.Message)"
-    break
-}
-
-$ItemCounter = 0
-ForEach($oSite in $collSiteCollections) {
-
-    $PercentComplete = [math]::Round($ItemCounter/$collSiteCollections.Count * 100, 2)
-    Add-ScriptLog -Color Yellow -Msg "$($PercentComplete)% Completed - Processing Site Collection: $($oSite.URL)"
+    #Status notification
     $ItemCounter++
+    $ItemProcess = [math]::Round($ItemCounter/$TenantSites.Count*100,1)
+    Write-Progress -PercentComplete ($ItemCounter / ($TenantSites.Count) * 100) -Activity "Processing $($ItemProcess)%" -Status "Site '$($TenantSite.Title)"
 
-    Try {
-        Set-PnPTenantSite -Url $oSite.Url -Owners $AdminUPN -ErrorAction Stop
+    Connect-PnPOnline -Url $TenantSite.url -interactive
+    $WebRoles = Get-PnPWeb -Includes RoleAssignments
+    ForEach ($SiteRoleAssignment in $WebRoles.RoleAssignments){
+        #Get the Permission Levels assigned and Member
+        Get-PnPProperty -ClientObject $SiteRoleAssignment -Property RoleDefinitionBindings, Member
+     
+        #Get the Permission Levels assigned
+        $SitePermissionLevels = ($SiteRoleAssignment.RoleDefinitionBindings | Select -ExpandProperty Name | Where { ($_ -ne "Limited Access") -and ($_ -ne "Web-Only Limited Access")} ) -join ","
+        If($SitePermissionLevels.Length -eq 0 -or $SiteRoleAssignment.Member.Title -clike '*Limited Access System Group*') {Continue}
 
-        Connect-PnPOnline -Url $oSite.Url -Interactive
-
-        Get-EveryoneExceptExternal -SiteUrl $oSite.Url
-        
+        $SitePermissionType = $SiteRoleAssignment.Member.PrincipalType
+            
+        If($SitePermissionType -eq "SharePointGroup") {
+            $GroupMembers = Get-PnPGroupMember -Identity $SiteRoleAssignment.Member.Title
+            ForEach($GroupMember in $GroupMembers){
+                If($GroupMember.Title -eq "Everyone" -or $GroupMember.Title -eq "Everyone except external users"){
+                    $Results += New-Object PSObject -Property ([ordered]@{
+                        SiteName               = $TenantSite.Title
+                        SiteURL                = $TenantSite.url
+                        From                   = $SiteRoleAssignment.Member.Title
+                        Group                  = $GroupMember.Title
+                        PermissionLevels       = $SitePermissionLevels
+                    })
+                }
+            }
+        }
+        Else{
+            If($SiteRoleAssignment.Member.Title -eq "Everyone" -or $SiteRoleAssignment.Member.Title -eq "Everyone except external users"){
+                $Results += New-Object PSObject -Property ([ordered]@{
+                    SiteName               = $TenantSite.Title
+                    SiteURL                = $TenantSite.url
+                    From                   = "Direct Permission"
+                    Group                  = $SiteRoleAssignment.Member.Title
+                    PermissionLevels       = $SitePermissionLevels
+                })
+            }
+        }
     }
-    Catch {
-        Add-ScriptLog -Color Red -Msg "Error while processing Site Collection '$($oSite.Url)'"
-        Add-ScriptLog -Color Red -Msg "Error message: '$($_.Exception.Message)'"
-        Add-ScriptLog -Color Red -Msg "Error Script Line: '$($_.InvocationInfo.ScriptLineNumber)'"
-        Add-ReportRecord -SiteUrl $oSite.Url -Remarks $_.Exception.Message
-    }
-
-    Connect-PnPOnline -Url $oSite.Url -Interactive
-    Remove-PnPSiteCollectionAdmin -Owners $AdminUPN
 }
-Add-ScriptLog -Color Cyan -Msg "100% Completed - Finished running script"
-Add-ScriptLog -Color Cyan -Msg "Report generated at at $($ReportOutput)"
+#Close status notification
+Write-Progress -Activity "Processing $($ItemProcess)%" -Status "Site '$($TenantSite.URL)"
+
+#Export the results to CSV
+If (Test-Path $ReportOutput) { Remove-Item $ReportOutput }
+$Global:Results | Export-Csv -Path $ReportOutput -NoTypeInformation
+Write-host -b Green "Report Generated Successfully!"
+Write-host -f Green $ReportOutput
 ```

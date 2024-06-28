@@ -3,85 +3,165 @@
 <br>
 
 ```powershell
-# Define Parameters
-$SiteURL= "https://DOMAIN.sharepoint.com/sites/SITENAME"
-$FileExt = "DOCX"
-$ReportOutput = "$Env:USERPROFILE\Desktop\FileExtReport.csv"
-
-$Global:Results = @()
-
-# Connect to PnP Online
-Connect-PnPOnline -Url $SiteURL -Interactive
-
-# Get all list and iterate
-$ExcludedLists = @("appdata", "appfiles", "Composed Looks", "Converted Forms", "Form Templates", "List Template Gallery", "Master Page Gallery", "Preservation Hold Library", "Project Policy Item List", "Site Assets", "Site Pages", "Solution Gallery", "Style Library", "TaxonomyHiddenList", "Theme Gallery", "User Information List", "Web Part Gallery")
-$Lists = Get-PnPList | Where-Object {$_.Hidden -eq $False -and $_.Title -notin $ExcludedLists -and $_.BaseType -eq "DocumentLibrary"}
-ForEach ($List in $Lists)
-    {
-
-    # Process notification parameters
-    $ItemCounter = 0
-    $Msg = "Collecting items on {0} '{1}'... " -f $List.BaseType,$List.Title
-    Write-Host -f Yellow $Msg -NoNewline
-    
-    # Report List information
-    $ListName               = $List.Title
-    $ListRelativeURL        = $List.DefaultViewUrl -Replace ('Forms/AllItems.aspx','') -Replace ('AllItems.aspx','')
-    
-    $ListItems = Get-PnPListItem -List $List.Title -PageSize 2000 | Where-Object { $_["FileLeafRef"] -like "*.$FileExt" }
-    
-    ForEach($Item in $ListItems)
-    {
-        
-        $ItemRelativeURL     = $Item["FileRef"] -Replace ($ListRelativeURL,'')
-        
-        # Process notification start 
-        $ItemCounter++
-        $PercentComplete = [math]::Round($ItemCounter/$ListItems.Count*100,1)
-        Write-Progress -PercentComplete $PercentComplete -Activity "$Msg $PercentComplete%" -Status $ItemRelativeURL
+#################################################################
+# DEFINE PARAMETERS FOR THE CASE
+#################################################################
+$AdminSiteURL = "https://Domain-admin.sharepoint.com"
+$SiteCollAdmin = "admin@email.com" 
+$FileExtension = "*.mp4"
 
 
-        If($Item.FileSystemObjectType -eq "Folder") {Continue}
 
-        $Versions = Get-PnPProperty -ClientObject $Item -Property Versions
-        $VersionsqQty         = $Versions.Count
-        $FileSizeMB          = [Math]::Round(($Item["File_x0020_Size"]/1MB),1)
+#################################################################
+# REPORT AND LOGS FUNCTIONS
+#################################################################
 
-        $Global:Results += New-Object PSObject -Property ([ordered]@{
-        "List Name"            = $ListName
-        "List URL"             = $ListRelativeURL
-        "Item ID"              = $Item.Id
-        "Item Name"            = $Item["FileLeafRef"]
-        "Item URL"             = $ItemRelativeURL
-        Created                = $Item["Created"]
-        "Created by"           = $Item["Author"].Email
-        Modified               = $Item["Modified"]
-        "Modified by"          = $Item["Editor"].Email
-        "Version No"           = $Item["_UIVersionString"]
-        "Versions Qty"         = $VersionsqQty
-        "File Size (MB)"       = $FileSizeMB
+function Add-ReportRecord {
+    param (
+        $SiteUrl,
+        $ListTitle,
+        $Item,
+        $Remarks
+    )
+
+    $Record = New-Object PSObject -Property ([ordered]@{
+        SiteUrl = $SiteUrl
+        ListTitle = $ListTitle
+        ID = $Item.Id
+        Name = $Item["FileLeafRef"]
+        Type = $Item.FileSystemObjectType
+        Extension = $Item["File_x0020_Type"]
+        ItemURL = $Item["FileRef"]
+        Created = $Item["Created"]
+        Createdby = $Item["Author"].Email
+        Modified = $Item["Modified"]
+        Modifiedby = $Item["Editor"].Email
+        VersionNo = $Item["_UIVersionString"]
+        ItemSizeMB = [Math]::Round(($Item["File_x0020_Size"]/1MB),1)
+        Remarks = $Remarks
         })
-
-    }
     
-    # Process notification finish
-    Write-Host -f Green "COMPLETED!"
-    Write-Progress -Activity "Processing $($Global:ItemCounter)%" -Status $Msg -Completed
+    $Record | Export-Csv -Path $ReportOutput -NoTypeInformation -Append
+}
+
+Function Add-ScriptLog($Color, $Msg)
+{
+    Write-host -f $Color $Msg
+    $Date = Get-Date -Format "yyyy/MM/dd HH:mm"
+    $Msg = $Date + " - " + $Msg
+    Add-Content -Path $LogsOutput -Value $Msg
+}
+
+# Create Report location
+$FolderPath = "$Env:USERPROFILE\Documents\SPOSolutions\"
+$Date = Get-Date -Format "yyyyMMddHHmmss"
+$ReportName = "ItemReport"
+$FolderName = $Date + "_" + $ReportName
+New-Item -Path $FolderPath -Name $FolderName -ItemType "directory"
+
+# Files
+$ReportOutput = $FolderPath + $FolderName + "\" + $FolderName + "_report.csv"
+$LogsOutput = $FolderPath + $FolderName + "\" + $FolderName + "_Logs.txt"
+
+Add-ScriptLog -Color Cyan -Msg "Report will be generated at $($ReportOutput)"
+
+
+
+#################################################################
+# SCRIPT LOGIC
+#################################################################
+
+function Find-Lists {
+    param (
+        $SiteUrl
+    )
+    
+    Add-ScriptLog -Color White -Msg "Finding Libraries and Lists in Site '$($SiteUrl)'"
+
+    $collLists = Get-PnPList | Where-Object { $_.Hidden -eq $False -and $_.BaseType -eq "DocumentLibrary" }
+    Add-ScriptLog -Color White -Msg "Collected all Lists: $($collLists.Count)"
+    
+    ForEach($oList in $collLists) {
+
+        Try {
+            
+            Find-Items -SiteUrl $SiteUrl -List $oList
+
+        }
+        Catch {
+
+            Add-ScriptLog -Color Red -Msg "Error while processing List '$($oList.Title)'"
+            Add-ScriptLog -Color Red -Msg "Error message: '$($_.Exception.Message)'"
+            Add-ScriptLog -Color Red -Msg "Error trace: '$($_.Exception.ScriptStackTrace)'"
+            Add-ReportRecord -SiteUrl $SiteUrl -ListTitle $oList.Title -Remarks $_.Exception.Message
+        
+        }
+    }
+}
+
+function Find-Items {
+    param (
+        $SiteUrl,
+        $List
+    )
+    
+    Add-ScriptLog -Color White -Msg "Finding '$($List.ItemCount)' Files and Items in '$($List.Title)'"
+
+    $collItems = Get-PnPListItem -List $List.Title -PageSize 5000 | Where-Object { $_["FileLeafRef"] -like $FileExtension }
+
+    foreach ( $oItem in $collItems) {        
+        Add-ScriptLog -Color White -Msg "Processing '$($oItem["FileRef"])'"
+
+        Add-ReportRecord -SiteUrl $SiteUrl -ListTitle $List.Title -Item $oItem
+    }
 }
 
 
-# Export the results to CSV
-If($Global:Results.count -eq 0){
+try {
+    Connect-PnPOnline -Url $AdminSiteURL -Interactive -ErrorAction Stop
+    Add-ScriptLog -Color Cyan -Msg "Connected to SharePoint Admin Center"
+    
+    if($CSVFile) {
+        $collSiteCollections = Import-CSV $CSVFile
+    }
+    else {
+        $collSiteCollections = Get-PnPTenantSite -ErrorAction Stop | Where-Object{ ($_.Title -notlike "" -and $_.Template -notlike "*Redirect*") }
+    }
+    Add-ScriptLog -Color Cyan -Msg "Collected Site Collections: $($collSiteCollections.count)"
 
-    Write-host -b Red "Report is empty!"
 
+    
 }
-Else{
-
-    If (Test-Path $ReportOutput) { Remove-Item $ReportOutput }
-    $Global:Results | Export-Csv -Path $ReportOutput -NoTypeInformation
-    Write-host -b Green "Report Generated Successfully!"
-    Write-host -f Green $ReportOutput
-
+catch {
+    Add-ScriptLog -Color Red -Msg "Error: $($_.Exception.Message)"
+    break
 }
+
+$ItemCounter = 0
+ForEach($oSite in $collSiteCollections) {
+
+    $PercentComplete = [math]::Round($ItemCounter/$collSiteCollections.Count * 100, 2)
+    Add-ScriptLog -Color Yellow -Msg "$($PercentComplete)% Completed - Processing Site Collection: $($oSite.URL)"
+    $ItemCounter++
+
+    Try {
+        Set-PnPTenantSite -Url $oSite.Url -Owners $SiteCollAdmin -ErrorAction Stop
+
+        Connect-PnPOnline -Url $oSite.Url -Interactive
+
+        Find-Lists -SiteUrl $oSite.Url
+    }
+    Catch {
+        Add-ScriptLog -Color Red -Msg "Error while processing Site '$($oSite.Url)'"
+        Add-ScriptLog -Color Red -Msg "Error message: '$($_.Exception.Message)'"
+        Add-ScriptLog -Color Red -Msg "Error Script Line: '$($_.InvocationInfo.ScriptLineNumber)'"
+        Add-ReportRecord -SiteUrl $oSite.Url -Remarks $_.Exception.Message
+    }
+
+    Connect-PnPOnline -Url $oSite.Url -Interactive
+    Remove-PnPSiteCollectionAdmin -Owners $SiteCollAdmin
+}
+
+Add-ScriptLog -Color Cyan -Msg "100% Completed - Finished running script"
+Add-ScriptLog -Color Cyan -Msg "Report generated at at $($ReportOutput)"
 ```

@@ -122,7 +122,7 @@ Add-ScriptLog -Color Cyan -Msg "Report generated at at $($ReportOutput)"
 #################################################################
 # DEFINE PARAMETERS FOR THE CASE
 #################################################################
-$SiteURL= "https://<DOMAIN>.sharepoint.com/sites/<SITENAME>"
+$SiteURL= "https://Domain.sharepoint.com/sites/SiteName"
 
 
 #################################################################
@@ -135,10 +135,9 @@ function Add-ReportRecord {
         $Item,
         $ItemName,
         $FileSizeBytes,
-        $FileSizeTotalBytes,
         $Remarks
     )
-    
+
     $Versions = Get-PnPProperty -ClientObject $Item -Property Versions
 
     $Record = New-Object PSObject -Property ([ordered]@{
@@ -148,16 +147,9 @@ function Add-ReportRecord {
         "Item Name" = $ItemName
         "ItemType" = $Item.FileSystemObjectType
         "Item URL" = $Item["FileRef"]
-        Created = $Item["Created"]
-        "Created by" = $Item["Author"].Email
-        Modified = $Item["Modified"]
-        "Modified by" = $Item["Editor"].Email
         "Version No" = $Item["_UIVersionString"]
         "Versions Qty" = $Versions.Count
         "ItemSize(MB)" = [Math]::Round(($FileSizeBytes/1MB),1)
-        "TotalItemSize(KB)" = [Math]::Round(($FileSizeTotalBytes/1KB),1)
-        "TotalItemSize(MB)" = [Math]::Round(($FileSizeTotalBytes/1MB),1)
-        "TotalItemSize(GB)" = [Math]::Round(($FileSizeTotalBytes/1GB),1)
         })
     
     $Record | Export-Csv -Path $ReportOutput -NoTypeInformation -Append
@@ -172,9 +164,9 @@ Function Add-ScriptLog($Color, $Msg)
 }
 
 # Create Report location
-$FolderPath = "$Env:USERPROFILE\Documents\SPOScripts\"
+$FolderPath = "$Env:USERPROFILE\Documents\"
 $Date = Get-Date -Format "yyyyMMddHHmmss"
-$ReportName = "LibraryItemReport"
+$ReportName = "ItemReport"
 $FolderName = $Date + "_" + $ReportName
 New-Item -Path $FolderPath -Name $FolderName -ItemType "directory"
 
@@ -194,10 +186,8 @@ try {
     Connect-PnPOnline -Url $SiteURL -Interactive -ErrorAction Stop
     Add-ScriptLog -Color Cyan -Msg "Connected to Site"
 
-    $ExcludedLists = @("appdata", "appfiles", "Composed Looks", "Converted Forms", "Form Templates", "List Template Gallery", "Master Page Gallery", "Preservation Hold Library", "Project Policy Item List", "Site Assets", "Site Pages", "Solution Gallery", "Style Library", "TaxonomyHiddenList", "Theme Gallery", "User Information List", "Web Part Gallery")
-    $collLists = Get-PnPList | Where-Object {$_.Hidden -eq $False -and $_.Title -notin $ExcludedLists}
-    Add-ScriptLog -Color Cyan -Msg "Collected all Lists"
-    Add-ScriptLog -Color Cyan -Msg "Lists Total: $($collLists.Count)"
+    $collLists = Get-PnPList | Where-Object { $_.Hidden -eq $False }
+    Add-ScriptLog -Color Cyan -Msg "Collected all Lists: $($collLists.Count)"
 }
 catch {
     Add-ScriptLog -Color Red -Msg "Error: $($_.Exception.Message)"
@@ -224,7 +214,7 @@ ForEach($oList in $collLists) {
             
             If($List.BaseType -eq "DocumentLibrary") {
 
-                Add-ReportRecord -List $oList -Item $oItem -ItemName $oItem["FileLeafRef"] -FileSizeBytes $oItem["File_x0020_Size"] -FileSizeTotalBytes $FileSizeTotalBytes = $oItem["SMTotalSize"].LookupId
+                Add-ReportRecord -List $oList -Item $oItem -ItemName $oItem["FileLeafRef"] -FileSizeBytes $oItem["File_x0020_Size"]
 
             }
 
@@ -238,7 +228,7 @@ ForEach($oList in $collLists) {
                     $AttachmentFileSizeTotal += $AttachmentFile.Length
                 }
 
-                Add-ReportRecord -List $oList -Item $oItem -ItemName $oItem["Title"] -FileSizeBytes $AttachmentFileSizeTotal -FileSizeTotalBytes $AttachmentFileSizeTotal
+                Add-ReportRecord -List $oList -Item $oItem -ItemName $oItem["Title"] -FileSizeBytes $AttachmentFileSizeTotal
 
             }
         }
@@ -253,10 +243,7 @@ ForEach($oList in $collLists) {
     }
 }
 
-if($collSiteCollections.Count -ne 0) { 
-    $PercentComplete = [math]::Round($ItemCounter/$collLists.Count * 100, 1) 
-    Add-ScriptLog -Color Cyan -Msg "$($PercentComplete)% Completed - Finished running script"
-}
+Add-ScriptLog -Color Cyan -Msg "100% Completed - Finished running script"
 Add-ScriptLog -Color Cyan -Msg "Report generated at at $($ReportOutput)"
 ```
 
