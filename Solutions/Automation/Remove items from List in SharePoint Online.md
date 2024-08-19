@@ -2,7 +2,7 @@
 
 <br>
 
-## Remove Files from a Folder
+## Remove files from a Folder
 
 ```powershell
 #################################################################
