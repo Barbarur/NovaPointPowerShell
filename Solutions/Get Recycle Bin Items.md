@@ -2,93 +2,89 @@
 
 <br>
 
-## Single Site
+## Recycle bin for a Single Site
 
 ```powershell
 #################################################################
 # DEFINE PARAMETERS FOR THE CASE
 #################################################################
 $SiteURL= "https://Domain.sharepoint.com/sites/SiteName"
+$ClientId = "00000000-0000-0000-0000-000000000000"
 
 
 
 #################################################################
 # REPORT AND LOGS FUNCTIONS
 #################################################################
+
 function Add-ReportRecord {
     param (
-        $SiteURL,
-        $Item
+        $Item,
+        $Remarks
     )
 
     $Record = New-Object PSObject -Property ([ordered]@{
-        "Site URL" = $SiteURL
-        "Item Title" = $Item.Title
-        "Item Type" = $Item.ItemType
-        "Item State" = $Item.ItemState
-        "Date Deleted" = $Item.DeletedDate
-        "Deleted By" = $Item.DeletedByEmail
-        "Original Location" = $Item.DirName
+        SiteUrl = $SiteURL
+        ItemTitle = $Item.Title
+        OriginalLocation = $Item.DirName
+        SizeMB = [Math]::Round(($Item.Size/1MB),1)
+        Remarks = $Remarks
         })
-    
-    $Record | Export-Csv -Path $ReportOutput -NoTypeInformation -Append
 
+    $Record | Export-Csv -Path $ReportOutput -NoTypeInformation -Append
 }
 
-function Add-ScriptLog($Color, $Msg) {
-    Write-host -f $Color $Msg
-    $Date = Get-Date -Format "yyyy/MM/dd HH:mm"
+Function Add-ScriptLog($Color, $Msg)
+{
+    $Date = Get-Date -Format "yyyy/MM/dd HH:mm K"
     $Msg = $Date + " - " + $Msg
     Add-Content -Path $LogsOutput -Value $Msg
+    Write-host -f $Color $Msg
 }
 
+# Create logs location
 $FolderPath = "$Env:USERPROFILE\Documents\"
 $Date = Get-Date -Format "yyyyMMddHHmmss"
-$ReportName = "RecycleBinItems"
+$ReportName = "SharePointGroupMembersReport"
 $FolderName = $Date + "_" + $ReportName
 New-Item -Path $FolderPath -Name $FolderName -ItemType "directory"
 
+# Files
 $ReportOutput = $FolderPath + $FolderName + "\" + $FolderName + "_report.csv"
 $LogsOutput = $FolderPath + $FolderName + "\" + $FolderName + "_Logs.txt"
 
-Add-ScriptLog -Color Cyan -Msg "Logs will be generated at $($LogsOutput)"
+Add-ScriptLog -Color Cyan -Msg "Report will be generated at $($ReportOutput)"
 
 
 
 #################################################################
 # SCRIPT LOGIC
 #################################################################
-function Get-RecycleBinItems {
+try {
+    Connect-PnPOnline -Url $SiteURL -ClientId $ClientId -Interactive -ErrorAction Stop
+    Add-ScriptLog -Color Cyan -Msg "Connected to Site"
 
     $RecycleBinItems = Get-PnPRecycleBinItem
-    $ItemCounter = 0
-    ForEach ($Item in $RecycleBinItems) {
-        $PercentComplete = [math]::Round($ItemCounter/$RecycleBinItems.Count * 100, 2)
-        Add-ScriptLog -Color Yellow -Msg "$($PercentComplete)% Completed"
-        $ItemCounter++
-
-        try {
-            Add-ReportRecord -SiteURL $SiteURL -Item $Item
-        }
-        catch {
-            Add-ScriptLog -Color Red -Msg "Error: $($_.Exception.Message)"
-            Add-ScriptLog -Color Red -Msg "Error trace: '$($_.Exception.ScriptStackTrace)'"
-        }
-
-    }
-}
-
-try {
-    Connect-PnPOnline -Url $SiteURL -Interactive -ErrorAction Stop
-    Add-ScriptLog -Color Cyan -Msg "Connected to Site '$($SiteURL)'"
+    Add-ScriptLog -Color Cyan -Msg "Collected recycle bin items $($RecycleBinItems.Count)"
 }
 catch {
     Add-ScriptLog -Color Red -Msg "Error: $($_.Exception.Message)"
     break
 }
 
-Get-RecycleBinItems
+Add-ScriptLog -Color Yellow -Msg "Processing recycle bin items"
 
-Add-ScriptLog -Color Cyan -Msg "100% Completed - Finished running script"
-Add-ScriptLog -Color Cyan -Msg "Report generated at at $($ReportOutput)"
+ForEach($Item in $RecycleBinItems)
+{
+    try {
+        Add-ReportRecord -Item $Item
+    }
+    catch {
+        Add-ScriptLog -Color Red -Msg "Error: $($_.Exception.Message)"
+        Add-ScriptLog -Color Red -Msg "Error Script Line: '$($_.InvocationInfo.ScriptLineNumber)'"
+        Continue
+    }
+}
+Add-ScriptLog -Color Cyan -Msg "100% Completed - Script finished"
+Add-ScriptLog -Color Cyan -Msg "Logs generated at $($LogsOutput)"
 ```

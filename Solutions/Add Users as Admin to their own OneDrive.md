@@ -2,7 +2,7 @@
 
 <br>
 
-## Clear recycle bin for all Site Collections and Subsites in the tenant
+## Add Users as Admin to their own OneDrive
 
 ```powershell
 #################################################################
@@ -94,7 +94,7 @@ foreach($oUser in $collUsers) {
     catch{
         Add-ScriptLog -Color Red -Msg "Error while processing User '$($oUser.UserPrincipalName)'"
         Add-ScriptLog -Color Red -Msg "Error message: '$($_.Exception.Message)'"
-        Add-ScriptLog -Color Red -Msg "Error trace: '$($_.Exception.ScriptStackTrace)'"
+        Add-ScriptLog -Color Red -Msg "Error trace: '$($_.InvocationInfo.ScriptLineNumber)'"
         Add-ReportRecord -UserUPN $oUser.UserPrincipalName -PersonalUrl $userProperties.PersonalUrl -Status $_.Exception.Message
     }
 }

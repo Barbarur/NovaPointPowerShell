@@ -249,6 +249,122 @@ Add-ScriptLog -Color Cyan -Msg "Report generated at at $($ReportOutput)"
 
 <br>
 
+## Files in all libraries of a site
+
+```powershell
+#################################################################
+# DEFINE PARAMETERS FOR THE CASE
+#################################################################
+$SiteURL= "https://Domain.sharepoint.com/sites/SiteName"
+$ClientId = "00000000-0000-0000-0000-000000000000"
+
+
+
+#################################################################
+# REPORT AND LOGS FUNCTIONS
+#################################################################
+
+function Add-ReportRecord {
+    param (
+        $List,
+        $Item,
+        $Remarks
+    )
+
+    $Versions = Get-PnPProperty -ClientObject $Item -Property Versions
+
+    $Record = New-Object PSObject -Property ([ordered]@{
+        SiteURL = $SiteURL
+        LibraryName = $List.Title
+        ItemID = $Item.Id
+        ItemName = $Item["FileLeafRef"]
+        ItemType = $Item.FileSystemObjectType
+        ItemURL = $Item["FileRef"]
+        Version = $Item["_UIVersionString"]
+        VersionsCount = $Versions.Count
+        ItemSizeMB = [Math]::Round(($Item["File_x0020_Size"]/1MB),1)
+        TotalItemSizeMB = [Math]::Round(($Item["SMTotalSize"].LookupId/1MB),1)
+        })
+    
+    $Record | Export-Csv -Path $ReportOutput -NoTypeInformation -Append
+}
+
+Function Add-ScriptLog($Color, $Msg)
+{
+    Write-host -f $Color $Msg
+    $Date = Get-Date -Format "yyyy/MM/dd HH:mm"
+    $Msg = $Date + " - " + $Msg
+    Add-Content -Path $LogsOutput -Value $Msg
+}
+
+# Create Report location
+$FolderPath = "$Env:USERPROFILE\Documents\"
+$Date = Get-Date -Format "yyyyMMddHHmmss"
+$ReportName = "ItemReport"
+$FolderName = $Date + "_" + $ReportName
+New-Item -Path $FolderPath -Name $FolderName -ItemType "directory"
+
+# Files
+$ReportOutput = $FolderPath + $FolderName + "\" + $FolderName + "_report.csv"
+$LogsOutput = $FolderPath + $FolderName + "\" + $FolderName + "_Logs.txt"
+
+Add-ScriptLog -Color Cyan -Msg "Report will be generated at $($ReportOutput)"
+
+
+
+#################################################################
+# SCRIPT LOGIC
+#################################################################
+
+try {
+    Connect-PnPOnline -Url $SiteURL -Interactive -ClientId $ClientId -ErrorAction Stop
+    Add-ScriptLog -Color Cyan -Msg "Connected to Site"
+
+    $collLists = Get-PnPList | Where-Object { $_.Hidden -eq $False -and $_.BaseType -eq "DocumentLibrary"}
+    Add-ScriptLog -Color Cyan -Msg "Collected all Lists: $($collLists.Count)"
+}
+catch {
+    Add-ScriptLog -Color Red -Msg "Error: $($_.Exception.Message)"
+    break
+}
+
+
+$ItemCounter = 0
+$ItemCounterStep = 1 / $collLists.Count
+ForEach($oList in $collLists) {
+
+    $PercentComplete = [math]::Round($ItemCounter/$collLists.Count * 100, 2)
+    Add-ScriptLog -Color Yellow -Msg "$($PercentComplete)% Completed - Processing List '$($oList.Title)'"
+    $ItemCounter++
+
+    Try {
+        
+        $collItems = Get-PnPListItem -List $oList.Title -PageSize 2000 | Where-Object { $_.FileSystemObjectType -ne "Folder"}
+
+        foreach ( $oItem in $collItems) {
+            
+            $PercentComplete = [math]::Round( $PercentComplete + $ItemCounterStep / $collItems.Count * 100, 2)
+            Add-ScriptLog -Color DarkYellow -Msg "$($PercentComplete)% Completed - Processing Item '$($oItem["FileRef"])'"
+            
+            Add-ReportRecord -List $oList -Item $oItem
+        }
+    }
+    Catch {
+
+        Add-ScriptLog -Color Red -Msg "Error while processing List '$($oList.Title)'"
+        Add-ScriptLog -Color Red -Msg "Error message: '$($_.Exception.Message)'"
+        Add-ScriptLog -Color Red -Msg "Error trace: '$($_.InvocationInfo.ScriptLineNumber)'"
+        Add-ReportRecord -List $oList -Item $oItem -Remarks $_.Exception.Message
+    
+    }
+}
+
+Add-ScriptLog -Color Cyan -Msg "100% Completed - Finished running script"
+Add-ScriptLog -Color Cyan -Msg "Report generated at at $($ReportOutput)"
+```
+
+<br>
+
 ## Files and Items in all Sites
 ```powershell
 #################################################################

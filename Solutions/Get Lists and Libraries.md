@@ -8,8 +8,9 @@
 ################################################################
 # PARAMETERS TO BE CHANGED TO MATCH CURRENT CASE
 ################################################################
-$AdminSiteURL = "https://<DOMAIN>-admin.sharepoint.com"
-$SiteCollAdmin = "<USER@EMAIL.com>"
+$AdminSiteURL = "https://Domain-admin.sharepoint.com"
+$ClientId = "00000000-0000-0000-0000-000000000000"
+$SiteCollAdmin = "admin@email.com"
 
 
 
@@ -20,15 +21,18 @@ $SiteCollAdmin = "<USER@EMAIL.com>"
 function Add-ReportRecord {
     param (
         $SiteUrl,
+        $SiteAdmin,
         $List,
         $Remarks
     )
 
     $Record = New-Object PSObject -Property ([ordered]@{
         SiteURL = $SiteURL
+        SiteAdmin = $SiteAdmin
         Title = $List.Title
         ListType = $List.BaseType
-        ListDefaultViewUrl = $List.DefaultViewUrl
+        ListServerRelativeUrl = $List.RootFolder.ServerRelativeUrl
+        ListLastModified = $List.LastItemUserModifiedDate
         Remarks = $Remarks
         })
     
@@ -60,24 +64,24 @@ Add-ScriptLog -Color Cyan -Msg "Report will be generated at $($ReportOutput)"
 #################################################################
 # SCRIPT LOGIC
 #################################################################
-Function Find-SiteLists($SiteURL)
+Function Find-SiteLists($SiteURL, $Admins)
 {
-    Connect-PnPOnline -Url $SiteURL -Interactive
+    Connect-PnPOnline -Url $SiteURL -ClientId $ClientId -Interactive
     Add-ScriptLog -Color Yellow -Msg "Processing Site: $($SiteURL)"
 
-    $collLists = Get-PnPList | Where-Object { $_.Hidden -eq $False -and $_.IsSystemList -eq $False }
+    $collLists = Get-PnPList | Where-Object { $_.Hidden -eq $False }
 
     ForEach($oList in $collLists) {
-        Add-ReportRecord -SiteUrl $SiteURL -List $oList
+        Add-ReportRecord -SiteUrl $SiteURL -SiteAdmin $Admins -List $oList
     }
 }
 
 
 try {
-    Connect-PnPOnline -Url $AdminSiteURL -Interactive -ErrorAction Stop
+    Connect-PnPOnline -Url $AdminSiteURL -ClientId $ClientId -Interactive -ErrorAction Stop
     Add-ScriptLog -Color Cyan -Msg "Connected to SharePoint Admin Center"
 
-    $collSiteCollections = Get-PnPTenantSite -ErrorAction Stop | Where-Object{ $_.Title -notlike "" -and $_.Template -notlike "*Redirect*" }
+    $collSiteCollections = Get-PnPTenantSite -Detailed -ErrorAction Stop | Where-Object{ $_.Title -notlike "" -and $_.Template -notlike "*Redirect*" }
     Add-ScriptLog -Color Cyan -Msg "Collected Site Collections: $($collSiteCollections.count)"
 }
 catch {
@@ -95,29 +99,27 @@ ForEach($oSite in $collSiteCollections) {
     Try{
         Set-PnPTenantSite -Url $oSite.Url -Owners $SiteCollAdmin -ErrorAction Stop
 
-        Find-SiteLists -SiteURL $oSite.Url
+        $collAdmins = Get-PnPSiteCollectionAdmin
+        $Admins = ""
+        foreach ($admin in $collAdmins) { $Admins += " $($admin.Email)"}
+        #Add-ScriptLog -Color Green -Msg $Admins
+
+        Find-SiteLists -SiteURL $oSite.Url -Admins $Admins
 
         $collSubSites = Get-PnPSubWeb -Recurse
 
         ForEach($oSubsite in $collSubSites) {
-            Find-SiteLists -SiteURL $oSubsite.Url
+            Find-SiteLists -SiteURL $oSubsite.Url -Admins $Admins
         }
     }
     Catch{
         Add-ScriptLog -Color Red -Msg "Error while processing Item '$($oSite.Url)"
         Add-ScriptLog -Color Red -Msg "Error message: '$($_.Exception.Message)'"
-        Add-ScriptLog -Color Red -Msg "Error trace: '$($_.Exception.ScriptStackTrace)'"
+        Add-ScriptLog -Color Red -Msg "Error trace: '$($_.InvocationInfo.ScriptLineNumber)'"
         Add-ReportRecord -SiteUrl $SiteURL -Remarks $_.Exception.Message
     }
 }
-$PercentComplete = [math]::Round($ItemCounter/$SitesList.Count * 100, 1)
-Add-ScriptLog -Color Cyan -Msg "$($PercentComplete)% Completed - Finished running script"
-Add-ScriptLog -Color Cyan -Msg "Report generated at at $($ReportOutput)"
-
-if($collSiteCollections.Count -ne 0) { 
-    $PercentComplete = [math]::Round($ItemCounter/$collSiteCollections.Count * 100, 1) 
-    Add-ScriptLog -Color Cyan -Msg "$($PercentComplete)% Completed - Finished running script"
-}
+Add-ScriptLog -Color Cyan -Msg "100% Completed - Finished running script"
 Add-ScriptLog -Color Cyan -Msg "Report generated at at $($ReportOutput)"
 ```
 
@@ -237,4 +239,129 @@ ForEach($Site in $SitesList){
 $PercentComplete = [math]::Round($ItemCounter/$SitesList.Count * 100, 1)
 Add-ScriptLog -Color Cyan -Msg "$($PercentComplete)% Completed - Finished running script"
 Add-ScriptLog -Color Cyan -Msg "Report generated at at $($ReportOutput)"
+```
+
+<br>
+
+## Preservation Hold Library across all sites
+```powershell
+################################################################
+# PARAMETERS TO BE CHANGED TO MATCH CURRENT CASE
+################################################################
+$AdminSiteURL = "https://Domain-admin.sharepoint.com/"
+$SiteCollAdmin = "admin@email.com"
+
+
+
+################################################################
+# REPORT AND LOGS FUNCTIONS
+################################################################
+
+function Add-ReportRecord {
+    param (
+        $SiteUrl,
+        $List,
+        $Size,
+        $Remarks
+    )
+
+    $Record = New-Object PSObject -Property ([ordered]@{
+        SiteURL = $SiteURL
+        Title = $List.Title
+        ListType = $List.BaseType
+        ListDefaultViewUrl = $List.DefaultViewUrl
+        SizeGb = [Math]::Round(($Size/1GB), 2)
+        Remarks = $Remarks
+        })
+    
+    $Record | Export-Csv -Path $ReportOutput -NoTypeInformation -Append
+}
+
+Function Add-ScriptLog {
+    param (
+        $Color,
+        $Msg,
+        $Size,
+        $Remarks
+    )
+    $Date = Get-Date -Format "yyyy/MM/dd HH:mm"
+    $Msg = $Date + " - " + $Msg
+    Add-Content -Path $LogsOutput -Value $Msg
+    Write-host -f $Color $Msg
+}
+
+$Date = Get-Date -Format "yyyyMMdd_HHmmss"
+$ReportName = "ListReport"
+$FolderName = $Date + "_" + $ReportName
+$FolderPath = "$Env:USERPROFILE\Documents\"
+New-Item -Path $FolderPath -Name $FolderName -ItemType "directory"
+$ReportOutput = $FolderPath + $FolderName + "\" + $ReportName + ".csv"
+
+$LogsName = $ReportName + "_Logs.txt"
+$LogsOutput = $FolderPath + $FolderName + "\" + $LogsName
+
+Add-ScriptLog -Color Cyan -Msg "Report will be generated at $($ReportOutput)"
+
+
+
+#################################################################
+# SCRIPT LOGIC
+#################################################################
+Function Find-SiteLists($SiteURL)
+{
+    Connect-PnPOnline -Url $SiteURL -Interactive
+
+    try{
+        $PHL = Get-PnPList -Identity "Preservation Hold Library"
+
+        $Metrics = Get-PnPFolderStorageMetric -List $PHL.Title
+        Add-ReportRecord -SiteUrl $SiteURL -List $PHL -Size $Metrics.TotalSize
+    }
+    catch{
+        Add-ReportRecord -SiteUrl $SiteURL -Remarks "Site has no PHL"
+    }
+
+}
+
+
+try {
+    Connect-PnPOnline -Url $AdminSiteURL -Interactive -ErrorAction Stop
+    Add-ScriptLog -Color Cyan -Msg "Connected to SharePoint Admin Center"
+
+    $collSiteCollections = Get-PnPTenantSite -ErrorAction Stop | Where-Object{ $_.Title -notlike "" -and $_.Template -notlike "*Redirect*" }
+    Add-ScriptLog -Color Cyan -Msg "Collected Site Collections: $($collSiteCollections.count)"
+}
+catch {
+    Add-ScriptLog -Color Red -Msg "Error: $($_.Exception.Message)"
+    break
+}
+
+$ItemCounter = 0
+ForEach($oSite in $collSiteCollections) {
+
+    $PercentComplete = [math]::Round($ItemCounter/$collSiteCollections.Count * 100, 2)
+    Add-ScriptLog -Color Yellow -Msg "$($PercentComplete)% Completed - Processing Site: $($oSite.Url)"
+    $ItemCounter++
+
+    Try{
+        Set-PnPTenantSite -Url $oSite.Url -Owners $SiteCollAdmin -ErrorAction Stop
+
+        Find-SiteLists -SiteURL $oSite.Url
+
+        $collSubSites = Get-PnPSubWeb -Recurse
+
+        ForEach($oSubsite in $collSubSites) {
+            Find-SiteLists -SiteURL $oSubsite.Url
+        }
+    }
+    Catch{
+        Add-ScriptLog -Color Red -Msg "Error while processing Item '$($oSite.Url)"
+        Add-ScriptLog -Color Red -Msg "Error message: '$($_.Exception.Message)'"
+        Add-ScriptLog -Color Red -Msg "Error trace: '$($_.Exception.ScriptStackTrace)'"
+        Add-ReportRecord -SiteUrl $SiteURL -Remarks $_.Exception.Message
+    }
+}
+Add-ScriptLog -Color Cyan -Msg "100% Completed - Finished running script"
+Add-ScriptLog -Color Cyan -Msg "Report generated at at $($ReportOutput)"
+
 ```

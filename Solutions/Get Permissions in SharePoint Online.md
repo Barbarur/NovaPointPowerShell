@@ -2,7 +2,7 @@
 
 <br>
 
-## User in Site all people list
+## Get user has access to sites across the tenant
 
 ```powershell
 #################################################################
