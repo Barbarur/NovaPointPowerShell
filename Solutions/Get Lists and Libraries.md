@@ -2,7 +2,7 @@
 
 <br>
 
-## List and Libraries across all Site
+## List and Libraries across all Sites
 
 ```powershell
 ################################################################

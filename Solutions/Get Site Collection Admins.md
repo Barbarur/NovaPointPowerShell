@@ -2,7 +2,185 @@
 
 <br>
 
-## Using PnP: Get Primary Admins
+## Using PnP: Get all Site Collection Administrators
+
+```powershell
+################################################################
+# PARAMETERS TO BE CHANGED TO MATCH CURRENT CASE
+################################################################
+$AdminSiteURL = "https://Domain-admin.sharepoint.com"
+$ClientId = "00000000-0000-0000-0000-000000000000"
+$SiteCollAdmin = "admin@email.com"
+
+
+
+################################################################
+# REPORT AND LOGS FUNCTIONS
+################################################################
+
+function Add-ReportRecord {
+    param (
+        $Site,
+        $AccessType,
+        $UserEmail,
+        $Remarks
+    )
+
+    $Record = New-Object PSObject -Property ([ordered]@{
+        
+        SiteName = $Site.Title
+        SiteURL = $Site.url
+        
+        AccessType = $AccessType
+        UserEmail = $UserEmail
+        
+        Remarks = $Remarks
+        })
+    
+    $Record | Export-Csv -Path $ReportOutput -NoTypeInformation -Append
+}
+
+Function Add-ScriptLog($Color, $Msg)
+{
+    $Date = Get-Date -Format "yyyy/MM/dd HH:mm"
+    $Msg = $Date + " - " + $Msg
+    Add-Content -Path $LogsOutput -Value $Msg
+    Write-host -f $Color $Msg
+}
+
+$Date = Get-Date -Format "yyyyMMdd_HHmmss"
+$ReportName = "AdminsAllReport"
+$FolderName = $Date + "_" + $ReportName
+$FolderPath = "$Env:USERPROFILE\Documents\"
+New-Item -Path $FolderPath -Name $FolderName -ItemType "directory"
+$ReportOutput = $FolderPath + $FolderName + "\" + $ReportName + ".csv"
+
+$LogsName = $ReportName + "_Logs.txt"
+$LogsOutput = $FolderPath + $FolderName + "\" + $LogsName
+
+Add-ScriptLog -Color Cyan -Msg "Report will be generated at $($ReportOutput)"
+
+
+
+#################################################################
+# SCRIPT LOGIC
+#################################################################
+
+Function Get-SGUsers {
+    param (
+        $Site,
+        $Group
+    )
+
+    $collSecurityGroupUsers = ''
+
+    
+    $ExcludedGroups = @("Global Administrator", "SharePoint Administrator", "Everyone", "Everyone except external users", "System Account" )
+    If( $Group.Title -in $ExcludedGroups ) { Continue }
+    
+    Add-ScriptLog -Color White -Msg "Checking Security Group $($Group.Title) $($Group.LoginName)"
+
+    Try {
+        If ($Group.LoginName -clike '*_o') {
+            $GroupID = Get-ObjectID -LoginName $Group.LoginName
+            $GroupUsers = Get-PnPAzureADGroupOwner -Identity $GroupID
+        }
+        Else {
+            $GroupID = Get-ObjectID -LoginName $Group.LoginName
+            $GroupUsers = Get-PnPAzureADGroupOwner -Identity $GroupID
+        }
+    }
+    Catch{
+        Add-ScriptLog -Color Red -Msg "Error while finding users in Security Group '$($GroupName)' '$($GroupID)'"
+        Add-ScriptLog -Color Red -Msg "Error message: '$($_.Exception.Message)'"
+        Add-ScriptLog -Color Red -Msg "Error Script Line: '$($_.InvocationInfo.ScriptLineNumber)'"
+        Add-ReportRecord -SiteUrl $SiteUrl -Remarks $_.Exception.Message
+        return ''
+    }
+
+    foreach ($oUser in $GroupUsers) {
+        
+        if ($oUser.Type -eq "User" -and $oUser.UserPrincipalName) {
+
+            $collSecurityGroupUsers += "$($oUser.UserPrincipalName); "
+        }
+        elseif ($oUser.Type -eq "Group") {
+
+            $collSecurityGroupUsers += Find-SecurityGroupMembers -SiteUrl $SiteUrl -GroupName $oUser.DisplayName -GroupID $oUser.UserPrincipalName
+        }
+    }
+
+    return $collSecurityGroupUsers
+}
+
+Function Get-ObjectID {
+    param (
+        $LoginName
+    )
+    
+    $GroupID = $LoginName
+    $GroupID = $GroupID -replace ('_o', '')
+    $GroupID = $GroupID -replace ('c:0o.c|federateddirectoryclaimprovider|', '')
+    $GroupID = $GroupID -replace ('c:0t.c|tenant|', '')
+    $GroupID = $GroupID.Trim('|')
+
+    Return $GroupID
+}
+
+
+try {
+    Connect-PnPOnline -Url $AdminSiteURL -ClientId $ClientId -Interactive -ErrorAction Stop
+    Add-ScriptLog -Color Cyan -Msg "Connected to SharePoint Admin Center"
+
+    $collSiteCollections = Get-PnPTenantSite -ErrorAction Stop | Where-Object { $_.Title -notlike "" -and $_.Template -notlike "*Redirect*" }
+    Add-ScriptLog -Color Cyan -Msg "Collected Site Collections: $($collSiteCollections.count)"
+}
+catch {
+    Add-ScriptLog -Color Red -Msg "Error: $($_.Exception.Message)"
+    break
+}
+
+$ItemCounter = 0
+ForEach($oSite in $collSiteCollections) {
+
+    $PercentComplete = [math]::Round($ItemCounter/$collSiteCollections.Count * 100, 2)
+    Add-ScriptLog -Color Yellow -Msg "$($PercentComplete)% Completed - $($oSite.Url)"
+    $ItemCounter++
+
+    Try {
+        Set-PnPTenantSite -Url $oSite.Url -Owners $SiteCollAdmin -ErrorAction Stop
+
+        Connect-PnPOnline -Url $oSite.Url -ClientId $ClientId -Interactive -ErrorAction Stop
+        $Admins = Get-PnPSiteCollectionAdmin
+
+        ForEach($Admin in $Admins){
+
+            If($Admin.PrincipalType -eq 'SecurityGroup') {      
+                $collAdmins = Get-SGUsers -Site $oSite -Group $Admin
+                Add-ReportRecord  -Site $oSite -AccessType "Security Group $($Group.Title)" -UserEmail $collAdmins
+            }
+
+            If($Admin.PrincipalType -eq 'User') {
+                Add-ReportRecord  -Site $oSite -AccessType "Direct Permission" -UserEmail $Admin.Email
+            }
+        }
+
+        Remove-PnPSiteCollectionAdmin -Owners $SiteCollAdmin
+    }
+    Catch{
+        Add-ScriptLog -Color Red -Msg "Error while processing Item '$($oSite.Url)"
+        Add-ScriptLog -Color Red -Msg "Error message: '$($_.Exception.Message)'"
+        Add-ScriptLog -Color Red -Msg "Error trace: '$($_.InvocationInfo.ScriptLineNumber)'"
+        Add-ReportRecord -SiteUrl $SiteURL -Remarks $_.Exception.Message
+    }
+}
+Add-ScriptLog -Color Cyan -Msg "100% Completed - Finished running script"
+Add-ScriptLog -Color Cyan -Msg "Report generated at at $($ReportOutput)"
+```
+
+<br>
+
+## Using PnP: Get only Primary Site Collection Administrators
 
 ```powershell
 #################################################################
@@ -113,186 +291,6 @@ ForEach($oSite in $collSiteCollections) {
 
 Add-ScriptLog -Color Cyan -Msg "100% Completed - Finished running script"
 Add-ScriptLog -Color Cyan -Msg "Report generated at at $($ReportOutput)"
-```
-
-<br>
-
-## Using PnP: Get All Site Collection Admins and Subsite Owners
-
-```powershell
-#Define Parameters
-$AdminSiteURL= "https://<Domain>-admin.sharepoint.com"
-$ReportOutput = "C:\AdminOwnerPermissions.csv"
-
-
-#Get Credentials to connect
-$Cred  = Get-Credential
-
-#Connect to Services
-Connect-PnPOnline -Url $AdminSiteURL –Credential $Cred
-Connect-AzureAD –Credential $Cred
-
-#Get owners of each Site
-$Global:Results = @()
-$ItemCounter = 0 
-
-
-#Add records to the Report
-Function Add-Report($UserName, $UserEmail, $AccessType, $GroupName, $AccountType, $AccountName, $SitePermissionLevels){
-    $Global:Results += New-Object PSObject -Property ([ordered]@{
-        SiteName               = $Site.Title
-        SiteURL                = $Site.url
-        UserName               = $UserName
-        UserEmail              = $UserEmail
-        AccessType             = $AccessType
-        GroupName              = $GroupName
-        AccountType            = $AccountType
-        AccountName            = $AccountName
-        PermissionLevel        = $SitePermissionLevels
-    })
-}
-
-
-# Clean up LoginName to get Group ID
-Function Get-ObjectID($LoginName){
-    $GroupID = $LoginName
-    $GroupID = $GroupID -replace ('_o', '')
-    $GroupID = $GroupID -replace ('c:0o.c|federateddirectoryclaimprovider|', '')
-    $GroupID = $GroupID -replace ('c:0t.c|tenant|', '')
-    $GroupID = $GroupID.Trim('|')
-
-    Return $GroupID
-}
-
-
-# Function to get Security Group Users depending if Added group is owners or only members
-Function Get-GroupUsers($LoginName){
-    # Get Group Owners
-    Try{
-        If($LoginName -clike '*_o'){
-            $GroupID = Get-ObjectID -LoginName $LoginName
-            $GroupUsers = Get-AzureADGroupOwner -ObjectId $GroupID
-        }
-        # Get Group Members
-        Else{
-            $GroupID = Get-ObjectID -LoginName $LoginName
-            $GroupUsers = Get-AzureADGroupMember  -ObjectId $GroupID
-        }
-    }
-    Catch{
-        Clear-Variable -Name GroupUsers
-    }
-    Return $GroupUsers 
-}
-
-
-
-#Get all Sites and iterate
-$Sites = Get-PnPTenantSite | Where{ ($_.Title -notlike "" -and $_.Template -notlike "*Redirect*" -and $_.Url -notlike "*my.sharepoint.com*") }
-Write-Host -f Cyan "Total number of Sites:"$Sites.Count
-ForEach($Site in $Sites){
-
-    #Status notification
-    $ItemCounter++
-    $ItemProcess = [math]::Round($ItemCounter/$Sites.Count*100,1)
-    Write-Progress -PercentComplete $ItemProcess -Activity "Processing $($ItemProcess)%" -Status "Site '$($Site.Url)"
-    Write-Host -f Yellow $Site.url
-
-    Connect-PnPOnline -Url $Site.url –Credential $Cred
-    
-    ####################################
-    # CHECK SITE COLLECTIONS ADMINS
-    ####################################
-    $Admins = Get-PnPSiteCollectionAdmin
-    ForEach($Admin in $Admins){
-
-        # SECURITY GROUP
-        If($Admin.PrincipalType -eq 'SecurityGroup'){
-            Write-Host 'Checking Admin  ##  Security Group  ## '$Admin.Email' ## '$Admin.LoginName
-
-            $GroupUsers = Get-GroupUsers -LoginName $Admin.LoginName
-            
-            ForEach($GroupUser in $GroupUsers){
-                Add-Report -UserName $GroupUser.DisplayName -UserEmail $GroupUser.UserPrincipalName -AccessType "Direct Access" -GroupName '' -AccountType 'Security Group' -AccountName $Admin.Title -SitePermissionLevels "Admin"
-            }
-        }
-
-        # USER
-        If($Admin.PrincipalType -eq 'User'){
-            Write-Host 'Checking Admin  ##  User  ##'$Admin.Email' ## '$Admin.LoginName
-            Add-Report -UserName $Admin.Title -UserEmail $Admin.Email -AccessType "Direct Access" -GroupName '' -AccountType "User" -AccountName $Admin.Title -SitePermissionLevels "Admin"
-        }
-    }
-
-
-
-    ####################################
-    # CHECK SUB-SITES FULL CONTROL USERS
-    ####################################
-    $SubSites = Get-PnPSubWeb -Recurse -Includes HasUniqueRoleAssignments
-    ForEach($Site in $SubSites){
-        Write-Host -f Yellow $Site.url
-
-        # SUBSITE WITH UNIQUE PERMISSIONS
-        if ($Site.HasUniqueRoleAssignments){
-            Connect-PnPOnline -Url $Site.url –Credential $Cred
-
-            $WebRoles = Get-PnPWeb -Includes RoleAssignments
-            ForEach ($SiteRoleAssignment in $WebRoles.RoleAssignments){
-                #Get the Permission Levels assigned and Member
-                Get-PnPProperty -ClientObject $SiteRoleAssignment -Property RoleDefinitionBindings, Member
-
-                #Get the Permission Levels assigned
-                $SitePermissionLevels = $SiteRoleAssignment.RoleDefinitionBindings | Where { ($_.Name -eq "Full Control")}
-                If($SitePermissionLevels.Length -eq 0 -or $SiteRoleAssignment.Member.Title -clike '*Limited Access System Group*') {Continue}
-
-                $SitePermissionType = $SiteRoleAssignment.Member.PrincipalType
-
-                # Check if user is in SharePoint Group
-                If($SitePermissionType -eq "SharePointGroup") {
-                    
-                    $GroupMembers = Get-PnPGroupMember -Identity $SiteRoleAssignment.Member.Title
-                    ForEach($GroupMember in $GroupMembers){
-                        
-                        If($GroupMember.Title -eq "Everyone" -or $GroupMember.Title -eq "Everyone except external users"){Continue}
-
-                        If($GroupMember.PrincipalType -eq "SecurityGroup"){
-                            Write-Host -f Cyan 'Checking SharePoint Group'$SiteRoleAssignment.Member.Title' ##  Security Group  ## '$GroupMember.Title' ## '$GroupMember.LoginName
-                    
-                            $GroupUsers = Get-GroupUsers -LoginName $GroupMember.LoginName
-                    
-                            ForEach($GroupUser in $GroupUsers){
-                                Add-Report -UserName $GroupUser.DisplayName -UserEmail $GroupUser.UserPrincipalName -AccessType "Direct Access" -GroupName '' -AccountType 'Security Group' -AccountName $Admin.Title -SitePermissionLevels "Full Control"
-                            }
-                        }
-                        Else{
-                            Write-Host -f Cyan 'Checking SharePoint Group '$SiteRoleAssignment.Member.Title' ##  User  ## '$GroupMember.Title' ## '$GroupMember.LoginName
-                            Add-Report -UserName $GroupMember.Title -UserEmail $GroupMember.Email -AccessType 'SharePoint Group' -GroupName $SiteRoleAssignment.Member.Title -AccountType "User" -AccountName $GroupMember.Title -SitePermissionLevels "Full Control"
-                        }
-                    }
-                }
-            }
-        }
-
-        # NO UNIQUE PERMISSIONS SUBSITE
-        Else{
-            Add-Report -UserName 'Same as parent site' -UserEmail 'Same as parent site' -AccessType 'Same as parent site' -GroupName 'Same as parent site' -AccountType 'Same as parent site' -AccountName 'Same as parent site' -SitePermissionLevels 'Same as parent site'
-        }
-    }
-}
-#Close status notification
-Write-Progress -Activity "Processing $($ItemProcess)%" -Status "Site '$($Site.URL)"
-
-If($Global:Results.count -eq 0){
-    Write-host -b Green "Report is empty!"
-}
-Else{
-    #Export the results to CSV
-    If (Test-Path $ReportOutput) { Remove-Item $ReportOutput }
-    $Global:Results | Export-Csv -Path $ReportOutput -NoTypeInformation
-    Write-host -b Green "Report Generated Successfully!"
-    Write-host -f Green $ReportOutput
-}
 ```
 
 <br>
